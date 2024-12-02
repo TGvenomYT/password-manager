@@ -1,3 +1,9 @@
+'''
+In Fernet, the signature is a 256-bit HMAC of the concatenated Version, Timestamp, IV, and Ciphertext fields. 
+The HMAC is signed using the signing key section of the Fernet key. 
+The entire token, including the HMAC, is encoded using Base64'''
+
+
 from cryptography.fernet import Fernet
 K=Fernet.generate_key()
 f=Fernet(K)

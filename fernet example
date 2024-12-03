@@ -1,0 +1,9 @@
+from cryptography.fernet import Fernet
+key=Fernet.generate_key()
+fer=Fernet(key)
+a='hello world'
+file=open('test.txt','w')
+q=fer.encrypt(a.encode()).decode()
+r=fer.decrypt(q.encode()).decode()
+print('encrypted=',q)
+print('decrypted=',r)

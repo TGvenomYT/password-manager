@@ -1,20 +1,16 @@
-'''
-In Fernet, the signature is a 256-bit HMAC of the concatenated Version, Timestamp, IV, and Ciphertext fields. 
-The HMAC is signed using the signing key section of the Fernet key. 
-The entire token, including the HMAC, is encoded using Base64'''
 
 
 from cryptography.fernet import Fernet
-K=Fernet.generate_key()
-f=Fernet(K)
-
+key=Fernet.generate_key()
+fer=Fernet(key)
 
 
 def add():
+    e=open('test.txt','a')
     acc=input('enter account name:')
-    e=open('text.exe','a')
     pwd=input('enter password:')
-    e.write(acc + "|" + f.encrypt(pwd.encode()).decode() + "\n")
+    encrypted_file=fer.encrypt(pwd.encode()).decode()
+    e.write(acc +"|" +encrypted_file+ "\n")
     e.close()
 
 
@@ -23,7 +19,8 @@ def view():
      for i in e.readlines():
          data=i.rstrip()
          acc,pwd=data.split('|')
-         print(acc,'|',f.decrypt(pwd.encode()).decode())
-        
+         decrypted_token=fer.decrypt(pwd.encode()).decode()
+         print(acc+'|'+decrypted_token)
+         e.close()
+add()
 view()
-

@@ -4,6 +4,7 @@ fer=Fernet(key)
 a='hello world'
 file=open('test.txt','w')
 q=fer.encrypt(a.encode()).decode()
+file.write(q)
 r=fer.decrypt(q.encode()).decode()
 print('encrypted=',q)
 print('decrypted=',r)

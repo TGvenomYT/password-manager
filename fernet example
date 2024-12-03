@@ -14,15 +14,15 @@ print('decrypted=',r)
 
 #2 input
 
-a=input()
-b=input()
+usname=input()
+pwd=input()
 file=open('test.txt','a')
-q=fer.encrypt(b.encode()).decode()
-file.write(a+'|'+q+'\n')
+encrypted_pwd=fer.encrypt(b.encode()).decode()
+file.write(uname+'|'+encrypted_pwd+'\n')
 file.close()
 fle=open('test.txt','r')
 for lines in fle.readlines():
       line=lines.rstrip()
       usname,pwd=line.split('|')
-      r=fer.decrypt(pwd.encode()).decode()
-      print(usname,'|',r,'\n')
+      decrypted_pwd=fer.decrypt(pwd.encode()).decode()
+      print(usname,'|',decrypted_pwd)

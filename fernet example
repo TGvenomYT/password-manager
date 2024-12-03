@@ -1,10 +1,28 @@
+#1 input
 from cryptography.fernet import Fernet
 key=Fernet.generate_key()
 fer=Fernet(key)
-a='hello world'
+a=str(input())
 file=open('test.txt','w')
 q=fer.encrypt(a.encode()).decode()
 file.write(q)
 r=fer.decrypt(q.encode()).decode()
 print('encrypted=',q)
 print('decrypted=',r)
+
+
+
+#2 input
+
+a=input()
+b=input()
+file=open('test.txt','a')
+q=fer.encrypt(b.encode()).decode()
+file.write(a+'|'+q+'\n')
+file.close()
+fle=open('test.txt','r')
+for lines in fle.readlines():
+      line=lines.rstrip()
+      usname,pwd=line.split('|')
+      r=fer.decrypt(pwd.encode()).decode()
+      print(usname,'|',r,'\n')

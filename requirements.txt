@@ -1,3 +1,0 @@
-requests
-speechrecognition
-pyttsx3

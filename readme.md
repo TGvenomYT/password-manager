@@ -19,8 +19,9 @@ password_manager/
 Installation
 
 1. Clone the repository:
+,,,
 git clone https://github.com/TGvenomYT/password-manager
-   
+ ,,,  
 cd jarvis-assistant
    ```
 
@@ -34,4 +35,5 @@ cd jarvis-assistant
    ```
    pip install -r requirements.txt
    ```
+
 

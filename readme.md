@@ -10,6 +10,7 @@ Features
 - View a password
 - Delete a password
 
+```
 password_manager/
 ├── password_manager_with_GUI.py
 ├── requirements.txt
@@ -17,7 +18,7 @@ password_manager/
 └── data/
     ├── key.key
     └── text.txt
-
+```
 Installation
 ===========
 

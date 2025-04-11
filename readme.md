@@ -19,8 +19,7 @@ password_manager/
 Installation
 
 1. Clone the repository:
-    ```
-git clone https://github.com/TGvenomYT/password-manager
+    ``` git clone https://github.com/TGvenomYT/password-manager
     ```
 
 2. Change directory:

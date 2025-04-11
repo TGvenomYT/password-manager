@@ -22,7 +22,7 @@ Installation
     
 git clone https://github.com/TGvenomYT/password-manager
     ```
-2.change directory
+2. Change directory:
 
 cd jarvis-assistant
    ```

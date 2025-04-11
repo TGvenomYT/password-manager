@@ -19,9 +19,9 @@ password_manager/
 Installation
 
 1. Clone the repository:
-   ```
-   git clone https://github.com/TGvenomYT/Deepseek-Jarvis.git
-   cd jarvis-assistant
+git clone https://github.com/TGvenomYT/password-manager
+   
+cd jarvis-assistant
    ```
 
 2. Create a virtual environment:

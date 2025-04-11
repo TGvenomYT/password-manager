@@ -19,18 +19,18 @@ password_manager/
 Installation
 
 1. Clone the repository:
-    ``` 
+```
 git clone https://github.com/TGvenomYT/password-manager
-    ```
+```
 
 2. Change directory:
-   ```
+```
 cd jarvis-assistant
-   ```
+```
 
 
 3. Create a virtual environment:
-   ```
+   ````
    python -m venv venv
    source venv/bin/activate  # On Windows use `venv\Scripts\activate`
    

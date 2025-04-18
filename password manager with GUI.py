@@ -2,7 +2,7 @@ from tkinter import *
 from tkinter import messagebox
 from cryptography.fernet import Fernet
 import os
-import fcntl
+
 # Get the current user's home directory
 home_directory = os.path.expanduser('~')
 

@@ -27,8 +27,11 @@ Installation
    https://github.com/TGvenomYT/password-manager.git
    ```
 
-2. install and setup the dependencies 
+2. install and setup the dependencies
+   ```
+   Read mysql installation and password.md
+   ```
 
- 3.  .click on 'PasswordManager v-2.4.0
+ 4.  .click on 'PasswordManager v-2.4.0
 
 

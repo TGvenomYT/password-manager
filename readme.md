@@ -24,8 +24,7 @@ Installation
 
 1. Clone the repository:
    ```
-   git clone https://github.com/TGvenomYT/Deepseek-Jarvis.git
-   cd jarvis-assistant
+   https://github.com/TGvenomYT/password-manager.git
    ```
 
 2. install and setup the dependencies 

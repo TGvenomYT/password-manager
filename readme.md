@@ -73,12 +73,11 @@ password_manager/
 - 🎨 Optional: Tkinter or PyQt for GUI  
 
 ---
-
 ## 🎬 Screenshots / Demo
 
 <p align="center">
-  <img src="https://via.placeholder.com/600x300/1E90FF/FFFFFF?text=CLI+Demo" width="49%" />
-  <img src="https://via.placeholder.com/600x300/32CD32/FFFFFF?text=GUI+Demo" width="49%" />
+  <img src="screenshots/Screenshot from 2025-10-08 21-30-17.png" width="70%" alt="GUI Screenshot"/>
+  <img src="Screenshot from 2025-10-08 21-31-03" width="70%" alt="GUI Screenshot"/>
 </p>
 
 ---
@@ -96,10 +95,10 @@ password_manager/
   <a href="https://github.com/TGvenomYT">
     <img src="https://img.shields.io/badge/GitHub-000?style=for-the-badge&logo=github&logoColor=white"/>
   </a>
-  <a href="https://Discord.com/in/TGvenomYT">
-    <img src="https://img.shields.io/badge/LinkedIn-0077b5?style=for-the-badge&logo=linkedin&logoColor=white"/>
+  <a href="https://Discord.com/in/TGvenom">
+     <img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white"/>
   </a>
-  <a href="mailto:.com">
+  <a href="mailto:rajicbe1969@gmail.com">
     <img src="https://img.shields.io/badge/Email-D14836?style=for-the-badge&logo=gmail&logoColor=white"/>
   </a>
 </p>

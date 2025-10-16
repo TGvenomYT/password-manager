@@ -79,9 +79,7 @@ password_manager/
   <img src="screenshots/Screenshot from 2025-10-08 21-30-17.png" width="70%" alt="GUI Screenshot"/>
   
 </p>
-<p align='center'>
-  <img src="Screenshot from 2025-10-08 21-31-03" width="70%" alt="GUI Screenshot"/>
-</p>
+
 ---
 
 ## 🌈 About the Project

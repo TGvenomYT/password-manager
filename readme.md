@@ -1,37 +1,107 @@
-**Password Manager**
+<h1 align="center">
+✨🔐 <span style="background: linear-gradient(90deg,#00C9FF,#92FE9D); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Password Manager MARK IVI</span> 🔐✨
+</h1>
 
-This is a simple password manager that uses the Fernet encryption and MYSQL database algorithm to store passwords. The passwords are stored in a DB called password_manager in the 'passwords' table. The key used to encrypt the passwords is stored in a table called locker in the DB password_manager. The key is generated when the program is run for the first time. The key is used to encrypt and decrypt the passwords. The program has a simple command line interface that allows the user to add, view, and delete passwords. The program also has a simple graphical user interface that allows the user to 
-add, view, and delete passwords.
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.x-blue?logo=python&logoColor=white" alt="Python Badge"/>
+  <img src="https://img.shields.io/badge/MySQL-Database-blue?logo=mysql&logoColor=white" alt="MySQL Badge"/>
+  <img src="https://img.shields.io/badge/Fernet-Encryption-green" alt="Fernet Badge"/>
+  <img src="https://img.shields.io/badge/License-MIT-yellow" alt="License Badge"/>
+</p>
 
-Features
-- Add a password
-- View a password
-- Delete a password
+<p align="center">
+  🧠 <b>Secure. Simple. Smart.</b>  
+  <br>
+  A lightweight password manager using <b>Fernet Encryption</b> & <b>MySQL</b> for secure local storage.  
+  <br>
+  Comes with both <b>CLI</b> 🖥 and <b>GUI</b> 🪟 modes.
+</p>
 
+---
+
+## 🚀 Features
+
+✅ Add, View, and Delete Passwords  
+✅ Secure local storage with **Fernet encryption**  
+✅ Dual interface: **CLI + GUI**  
+✅ Auto-generated encryption key on first run  
+
+---
+
+## 🧩 Project Structure
+
+```
 password_manager/
 ├── password_manager MARK IVI.py
 ├── requirements.txt
 ├── README.md
 └── data/
-    ├── locker
-    └── passwords
+├── locker
+└── passwords
 
-The  SQL password is stored in password.text.gpg file(encrypted).The user and password given are stored in the table "password_manage" after encryption of  the given password.
-Therefore this software securely stores your passwords locally on your machine
+```
 
 
-Installation
+📁 The `password.text.gpg` file stores your **encrypted SQL password**  
+🔑 The encryption key is stored in the `locker` table (auto-generated)  
+🧱 Encrypted credentials are stored in the `password_manage` table  
 
-1. Clone the repository:
-   ```
-   https://github.com/TGvenomYT/password-manager.git
-   ```
+---
 
-2. install and setup the dependencies
-   ```
-   Read mysql installation and password.md
-   ```
+## ⚙️ How It Works
 
- 4.  .click on 'PasswordManager v-2.4.0
+1. Generates a **Fernet key** when first launched  
+2. Encrypts passwords before storing them in the database  
+3. Decrypts them safely when viewing via **CLI** or **GUI**  
+
+---
+
+## 🌟 Why Choose Password manager MARK IV?
+
+💾 100% Local Data — no cloud storage, no leaks  
+🔒 Bank-level encryption (Fernet AES-128)  
+🪶 Lightweight and easy to run anywhere  
+🎨 Intuitive GUI + powerful CLI  
+
+---
+
+## 🧰 Requirements
+
+- 🐍 **Python 3.x**  
+- 🗄️ **MySQL**  
+- 🔑 **cryptography** library  
+- 🎨 Optional: Tkinter or PyQt for GUI  
+
+---
+
+## 🎬 Screenshots / Demo
+
+<p align="center">
+  <img src="https://via.placeholder.com/600x300/1E90FF/FFFFFF?text=CLI+Demo" width="49%" />
+  <img src="https://via.placeholder.com/600x300/32CD32/FFFFFF?text=GUI+Demo" width="49%" />
+</p>
+
+---
+
+## 🌈 About the Project
+
+> **MARK IVI** is designed for users who value **simplicity and privacy**.  
+> Built with 💙 and Python, it ensures your credentials stay safe — right on your device.
+
+---
+
+## 💬 Connect With Me
+
+<p align="center">
+  <a href="https://github.com/TGvenomYT">
+    <img src="https://img.shields.io/badge/GitHub-000?style=for-the-badge&logo=github&logoColor=white"/>
+  </a>
+  <a href="https://Discord.com/in/TGvenomYT">
+    <img src="https://img.shields.io/badge/LinkedIn-0077b5?style=for-the-badge&logo=linkedin&logoColor=white"/>
+  </a>
+  <a href="mailto:.com">
+    <img src="https://img.shields.io/badge/Email-D14836?style=for-the-badge&logo=gmail&logoColor=white"/>
+  </a>
+</p>
 
 

@@ -77,9 +77,11 @@ password_manager/
 
 <p align="center">
   <img src="screenshots/Screenshot from 2025-10-08 21-30-17.png" width="70%" alt="GUI Screenshot"/>
+  
+</p>
+<p align='center'>
   <img src="Screenshot from 2025-10-08 21-31-03" width="70%" alt="GUI Screenshot"/>
 </p>
-
 ---
 
 ## 🌈 About the Project
@@ -95,7 +97,7 @@ password_manager/
   <a href="https://github.com/TGvenomYT">
     <img src="https://img.shields.io/badge/GitHub-000?style=for-the-badge&logo=github&logoColor=white"/>
   </a>
-  <a href="https://Discord.com/in/TGvenom">
+  <a href="https://Discord.com/in/tgvenom0441">
      <img src="https://img.shields.io/badge/Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white"/>
   </a>
   <a href="mailto:rajicbe1969@gmail.com">

@@ -7,6 +7,20 @@ import os
 from bcrypt import hashpw, gensalt,checkpw
 import subprocess
 
+dependencies():
+  import os
+  import subprocess
+  import sys
+
+  venv_dir = os.path.join(os.path.dirname(__file__), "venv")
+
+#  Create venv if not exists
+  if not os.path.exists(venv_dir):
+     subprocess.run([sys.executable, "-m", "venv", venv_dir])
+
+# Activate venv and install dependencies
+pip_executable = os.path.join(venv_dir, "bin", "pip")
+subprocess.run([pip_executable, "install", "-r", "requirements.txt"])
 
 
 gpg_file = "passwd.txt.gpg"
@@ -902,15 +916,18 @@ def dellpass():
 
 
 while 1:
-    cur.execute("SELECT master_password FROM password_manager.locker where master_password IS NOT NULL")
-    result = cur.fetchone()
+    try:
+     cur.execute("SELECT master_password FROM password_manager.locker where master_password IS NOT NULL")
+     result = cur.fetchone()
     
-    if result is not None :
+     if result is not None :
         checkmasterpass()
         break   
-    else:
+     else:
         masterpass()
         break
+    except ImportError:
+        dependencies()
 
 
 mydb.close()

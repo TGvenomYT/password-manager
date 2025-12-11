@@ -70,7 +70,7 @@ password_manager/
 - 🐍 **Python 3.x**  
 - 🗄️ **MySQL**  
 - 🔑 **cryptography** library  
-- 🎨 Optional: Tkinter or PyQt for GUI  
+- 🎨 **Tkinter** or **PyQt** for GUI  
 
 ---
 ## 🎬 Screenshots / Demo

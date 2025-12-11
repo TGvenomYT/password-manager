@@ -3,7 +3,7 @@ flowchart TD
   %% Layout & styles for a cleaner design
   %% Nodes
   Start([Start]):::startEnd --> LoadModules[/"Import modules\n(tkinter, cryptography, mysql, bcrypt,\nsubprocess, os, ...)"/]:::process
-  LoadModules --> DecryptGPG[/"Attempt: gpg -d passwd.txt.gpg"\n(called via subprocess) /]:::process
+  LoadModules --> DecryptGPG[/"Attempt: gpg -d passwd.txt.gpg\n(called via subprocess)"/]:::process
 
   DecryptGPG -->|success| SetPassword[/"Store decrypted\nDB password in variable"/]:::success
   DecryptGPG -->|failure| PrintError["Print decryption error\n(password may be unset)"]:::danger --> SetPassword

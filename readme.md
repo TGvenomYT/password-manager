@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  🧠 <b>Secured. Simple. Smart.</b>  
+  🧠 <b>Secure. Simple. Smart.</b>  
   <br>
   A lightweight password manager using <b>Fernet Encryption</b> & <b>MySQL</b> for secure local storage.  
   <br>

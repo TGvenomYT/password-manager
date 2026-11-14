@@ -68,7 +68,7 @@ You use two secrets:
 
 | Secret | Protects | When you type it |
 |---|---|---|
-| **GPG passphrase** | The MySQL password, stored as `db-credential.gpg` | At launch, unless gpg-agent still remembers it (about 10 minutes) |
+| **GPG passphrase** | The MySQL password, stored as `db-credential.gpg` | At launch. gpg-agent usually remembers it for about 10 minutes, depending on its version and settings |
 | **Master password** | Your vault: the key that decrypts your passwords | Every time you open the vault |
 
 ```

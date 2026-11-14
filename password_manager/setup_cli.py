@@ -183,7 +183,7 @@ def run_setup(args: argparse.Namespace) -> int:
 
     say("")
     say("Choose a GPG passphrase. It encrypts the database password on disk, and the app")
-    say("asks for it at launch (gpg-agent remembers it for a few minutes).")
+    say("asks for it at launch (gpg-agent usually remembers it for a few minutes).")
     say("This is separate from your master password, which you set in the app.")
     passphrase = ask_new_secret("GPG passphrase", MIN_PASSPHRASE_LENGTH)
 

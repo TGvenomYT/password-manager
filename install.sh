@@ -230,7 +230,7 @@ Terminal=false
 Categories=Utility;Security;
 EOF
     chmod 644 "$desktop"
-    have update-desktop-database && update-desktop-database "$data/applications" >/dev/null 2>&1 || true
+    if have update-desktop-database; then update-desktop-database "$data/applications" >/dev/null 2>&1 || true; fi
     ln -sf "$cli" "$HOME/.local/bin/password-manager"
     if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
         LAUNCH_CMD=(nohup "${run[@]}")
@@ -296,7 +296,7 @@ build_binary() {
             out="$work/dist/PasswordManager"; exe="$out"
         fi
         if "$exe" --self-test >>"$log" 2>&1; then
-            rm -rf "$INSTALL_DIR/bin"
+            rm -rf "${INSTALL_DIR:?}/bin"
             mkdir -p "$INSTALL_DIR/bin"
             mv "$out" "$INSTALL_DIR/bin/"
             BUILT="$INSTALL_DIR/bin/$(basename "$out")"
@@ -351,7 +351,7 @@ main() {
     VERSION="?"
 
     if [ "$UNINSTALL" -eq 1 ]; then
-        rm -rf "$INSTALL_DIR"
+        rm -rf "${INSTALL_DIR:?}"
         if [ "$OS" = Darwin ]; then mac_uninstall_launcher; else linux_uninstall_launcher; fi
         info "Removed the app. Your vault and settings were kept:"
         echo "    - MySQL database 'password_manager' and MySQL user 'pm_app'"

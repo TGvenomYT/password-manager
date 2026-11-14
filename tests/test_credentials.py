@@ -40,9 +40,12 @@ def test_unlock_asks_and_retries(gpg, tmp_path):
     assert credentials.decrypt_cached(path, gpg) is None
     assert credentials.unlock_db_password(path, gpg, ask) == "value"
     assert asked == [0, 1]
-    # The right passphrase is now cached by gpg-agent, so the next launch doesn't ask.
-    assert credentials.decrypt_cached(path, gpg) == "value"
-    assert credentials.unlock_db_password(path, gpg, lambda attempt: pytest.fail("asked again")) == "value"
+    # gpg-agent usually caches the right passphrase (macOS gpg 2.5, Debian gpg 2.2), but whether it does
+    # depends on the agent's version and config (GitHub's Ubuntu gpg 2.4 doesn't), so caching is best-effort.
+    cached = credentials.decrypt_cached(path, gpg)
+    assert cached in (None, "value")
+    if cached is not None:
+        assert credentials.unlock_db_password(path, gpg, lambda attempt: pytest.fail("asked again")) == "value"
 
 
 def test_unlock_cancel(gpg, tmp_path):

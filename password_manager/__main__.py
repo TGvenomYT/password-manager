@@ -17,7 +17,8 @@ from .config import config_dir
 
 
 def _configure_logging() -> None:
-    handlers: List[logging.Handler] = [logging.StreamHandler()]
+    # Windowed builds (e.g. PasswordManager.exe) have no stderr at all.
+    handlers: List[logging.Handler] = [logging.StreamHandler()] if sys.stderr else []
     try:
         log_dir = config_dir()
         log_dir.mkdir(parents=True, exist_ok=True)

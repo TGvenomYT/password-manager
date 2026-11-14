@@ -55,6 +55,33 @@ jobs:
         env:
           PM_TEST_MYSQL: root:ci-root@127.0.0.1:3306
 
+  binary:
+    name: native build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install . "pyinstaller>=6.11"
+      - run: python -m PyInstaller --noconfirm --clean --log-level WARN packaging/PasswordManager.spec
+      - name: Self-test (macOS)
+        if: runner.os == 'macOS'
+        run: '"dist/Password Manager.app/Contents/MacOS/PasswordManager" --self-test'
+      - name: Self-test (Linux)
+        if: runner.os == 'Linux'
+        run: dist/PasswordManager --self-test
+      - name: Self-test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\PasswordManager.exe -ArgumentList '--self-test' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "self-test exited with $($p.ExitCode)" }
+
   lint-installers:
     runs-on: ubuntu-latest
     steps:

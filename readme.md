@@ -49,7 +49,7 @@ curl -fsSL https://raw.githubusercontent.com/TGvenomYT/password-manager/main/ins
 The installer:
 
 1. Installs **Python 3 + Tkinter**, **GnuPG** and **MySQL** if they're missing (Homebrew on macOS; apt, dnf or pacman on Linux; winget on Windows) and starts MySQL.
-2. Installs the app into its own virtual environment.
+2. Installs the app into its own virtual environment and **builds a native app for your machine** with PyInstaller: `Password Manager.app` on macOS, `PasswordManager.exe` on Windows, a `PasswordManager` binary on Linux. If that build fails, the app runs from the Python environment instead (set `PM_NO_BINARY=1` to skip the build).
 3. Creates the `password_manager` database and a MySQL user `pm_app` with a random password, which can only access that database. The app never logs in as `root`.
 4. Asks you for a **GPG passphrase** and uses it to encrypt that MySQL password on disk.
 5. Adds a launcher: `~/Applications/Password Manager.app` on macOS, an applications-menu entry on Linux, Start Menu and Desktop shortcuts on Windows.
@@ -122,6 +122,10 @@ python3 -m venv venv && . venv/bin/activate
 pip install .
 python -m password_manager setup              # add --admin-command "sudo mysql" on Ubuntu/Debian
 python -m password_manager                    # launch
+
+# optional: build a standalone app for this machine
+pip install "pyinstaller>=6.11" && pyinstaller --noconfirm packaging/PasswordManager.spec
+dist/PasswordManager --self-test              # macOS: "dist/Password Manager.app/Contents/MacOS/PasswordManager"
 ```
 
 `setup` options: `--host`, `--port`, `--socket`, `--database`, `--app-user`, `--admin-user`, `--admin-command`, `--reconfigure`.

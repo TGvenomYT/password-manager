@@ -9,8 +9,10 @@
     Installs Python (with Tkinter), GnuPG and MySQL Server with winget. If no
     MySQL service exists yet, it initializes a local one named
     'PasswordManagerMySQL' that listens on 127.0.0.1 only. It then installs the
-    app into its own virtualenv, runs the guided setup, and adds Start Menu and
-    Desktop shortcuts. It needs administrator rights and asks for them itself.
+    app into its own virtualenv, builds a native PasswordManager.exe for this machine
+    (PyInstaller), runs the guided setup, and adds Start Menu and Desktop shortcuts.
+    It needs administrator rights and asks for them itself. Set PM_NO_BINARY=1 to skip
+    the native build.
 #>
 [CmdletBinding()]
 param(
@@ -216,11 +218,43 @@ function Install-App([string]$Python, [string]$Source) {
     if ($code -ne 0) { throw 'pip install failed.' }
 }
 
-function New-Shortcut([string]$Path) {
+# Build a standalone PasswordManager.exe for this machine. It is used only if its self-test
+# passes; otherwise the shortcuts run the app from the Python environment.
+function Build-Binary([string]$Source) {
+    if ($env:PM_NO_BINARY -eq '1') { return $null }
+    Write-Info 'Building the native app for this machine (PyInstaller, about a minute)...'
+    $ErrorActionPreference = 'Continue'
+    $work = Join-Path ([IO.Path]::GetTempPath()) ("pm-pyi-" + [Guid]::NewGuid().ToString('N'))
+    $log = Join-Path $InstallDir 'binary-build.log'
+    try {
+        & $VenvPython -m pip install --quiet --disable-pip-version-check 'pyinstaller>=6.11' *> $log
+        if ($LASTEXITCODE -ne 0) { throw 'installing PyInstaller failed' }
+        $spec = Join-Path $Source 'packaging\PasswordManager.spec'
+        & $VenvPython -m PyInstaller --noconfirm --clean --log-level WARN --distpath "$work\dist" --workpath "$work\build" $spec *>> $log
+        if ($LASTEXITCODE -ne 0) { throw 'PyInstaller failed' }
+        $built = Join-Path $work 'dist\PasswordManager.exe'
+        # A windowed exe isn't waited for by '&', so use Start-Process -Wait for the exit code.
+        $test = Start-Process -FilePath $built -ArgumentList '--self-test' -Wait -PassThru -WindowStyle Hidden
+        if ($test.ExitCode -ne 0) { throw "self-test failed (exit $($test.ExitCode))" }
+        $bin = Join-Path $InstallDir 'bin'
+        New-Item -ItemType Directory -Force -Path $bin | Out-Null
+        $exe = Join-Path $bin 'PasswordManager.exe'
+        Copy-Item -Force -Path $built -Destination $exe
+        Remove-Item -Force $log -ErrorAction SilentlyContinue
+        return $exe
+    } catch {
+        Write-Warn "The native build didn't work here ($($_.Exception.Message); details: $log). Using the Python environment instead."
+        return $null
+    } finally {
+        Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue
+    }
+}
+
+function New-Shortcut([string]$Path, [string]$Target, [string]$Arguments) {
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($Path)
-    $shortcut.TargetPath = $VenvPythonW
-    $shortcut.Arguments = '-m password_manager'
+    $shortcut.TargetPath = $Target
+    $shortcut.Arguments = $Arguments
     $shortcut.WorkingDirectory = $InstallDir
     $shortcut.Description = 'Local encrypted password vault'
     $shortcut.Save()
@@ -261,18 +295,24 @@ function Invoke-Main {
 
     Install-MySql
     Install-App $python $source
+    $binary = Build-Binary $source
 
     $setupArgs = @('-m', 'password_manager', 'setup')
     if ($Reconfigure) { $setupArgs += '--reconfigure' }
     & $VenvPython @setupArgs
     if ($LASTEXITCODE -ne 0) { throw 'Setup did not complete. Fix the problem above and run the installer again.' }
 
-    foreach ($link in Get-ShortcutPaths) { New-Shortcut $link }
+    if ($binary) { $target = $binary; $targetArgs = '' } else { $target = $VenvPythonW; $targetArgs = '-m password_manager' }
+    foreach ($link in Get-ShortcutPaths) { New-Shortcut $link $target $targetArgs }
     $version = Invoke-Probe $VenvPython @('-c', 'import password_manager as p; print(p.__version__)')
     Write-Info "Password Manager $version is installed (Start Menu and Desktop shortcuts added)."
     if (-not $NoLaunch) {
         Write-Info 'Opening it now...'
-        Start-Process -FilePath $VenvPythonW -ArgumentList '-m', 'password_manager' -WorkingDirectory $InstallDir
+        if ($binary) {
+            Start-Process -FilePath $binary -WorkingDirectory $InstallDir
+        } else {
+            Start-Process -FilePath $VenvPythonW -ArgumentList '-m', 'password_manager' -WorkingDirectory $InstallDir
+        }
     }
 }
 

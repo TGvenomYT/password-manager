@@ -6,13 +6,15 @@
 #   ./install.sh --uninstall     remove the app (keeps your vault, config and MySQL)
 #   ./install.sh --no-launch     don't open the app at the end
 #   PM_SETUP_ARGS="--port 3307"  extra options for `password_manager setup` (custom port, socket, ...)
+#   PM_NO_BINARY=1               skip building the native binary (run from the Python environment)
 #
 # Remote install, without cloning:
 #   curl -fsSL https://raw.githubusercontent.com/TGvenomYT/password-manager/main/install.sh | bash
 #
 # What it does: installs Python 3 with Tkinter, GnuPG and MySQL (Homebrew on macOS;
 # apt, dnf or pacman on Linux), starts MySQL, installs the app into its own
-# virtualenv, runs the guided setup, and adds an app launcher.
+# virtualenv, builds a native binary for this machine with PyInstaller, runs the
+# guided setup, and adds an app launcher.
 
 set -euo pipefail
 
@@ -105,6 +107,12 @@ mac_launcher() {
         die "$app already exists and isn't ours; not touching it."
     fi
     rm -rf "$app"
+    if [ -n "$BUILT" ]; then
+        mv "$BUILT" "$app"
+        LAUNCH_CMD=(open "$app")
+        info "Added \"$APP_NAME\" (native build) to $HOME/Applications (also searchable in Spotlight)."
+        return
+    fi
     mkdir -p "$app/Contents/MacOS"
     cat >"$app/Contents/MacOS/PasswordManager" <<EOF
 #!/bin/bash
@@ -146,7 +154,8 @@ linux_deps() {
     linux_sudo
     local pkgs=()
     if have apt-get; then
-        pkgs=(python3 python3-venv python3-tk gnupg)
+        # binutils + libpython3-dev: PyInstaller needs objdump and the shared libpython.
+        pkgs=(python3 python3-venv python3-tk gnupg binutils libpython3-dev)
         if ! have_mysql_server; then
             # Debian lists mysql-server as a purely virtual package (exit 0, no Version), so check for a real one.
             if apt-cache show mysql-server 2>/dev/null | grep -q '^Version:'; then pkgs+=(mysql-server); else pkgs+=(default-mysql-server); fi
@@ -155,7 +164,7 @@ linux_deps() {
         "${SUDO[@]}" apt-get update -qq </dev/null
         "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${pkgs[@]}" </dev/null
     elif have dnf; then
-        pkgs=(python3 python3-tkinter gnupg2)
+        pkgs=(python3 python3-tkinter gnupg2 binutils)
         if ! have_mysql_server; then
             if dnf -q info mysql-server >/dev/null 2>&1; then pkgs+=(mysql-server)
             elif dnf -q info community-mysql-server >/dev/null 2>&1; then pkgs+=(community-mysql-server)
@@ -164,7 +173,7 @@ linux_deps() {
         info "Installing with dnf: ${pkgs[*]}"
         "${SUDO[@]}" dnf install -y -q "${pkgs[@]}" </dev/null
     elif have pacman; then
-        pkgs=(python tk gnupg)
+        pkgs=(python tk gnupg binutils)
         have_mysql_server || pkgs+=(mariadb)
         info "Installing with pacman: ${pkgs[*]}"
         "${SUDO[@]}" pacman -S --needed --noconfirm "${pkgs[@]}" </dev/null
@@ -206,22 +215,25 @@ linux_start_db() {
 linux_launcher() {
     local data="${XDG_DATA_HOME:-$HOME/.local/share}"
     local desktop="$data/applications/password-manager.desktop"
+    local run=("$VENV/bin/python" -m password_manager) cli="$VENV/bin/password-manager" exec_line
+    if [ -n "$BUILT" ]; then run=("$BUILT"); cli="$BUILT"; fi
+    exec_line="\"${run[0]}\"${run[1]:+ ${run[*]:1}}"
     mkdir -p "$data/applications" "$HOME/.local/bin"
     cat >"$desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=$APP_NAME
 Comment=Local encrypted password vault
-Exec="$VENV/bin/python" -m password_manager
+Exec=$exec_line
 Icon=dialog-password
 Terminal=false
 Categories=Utility;Security;
 EOF
     chmod 644 "$desktop"
     have update-desktop-database && update-desktop-database "$data/applications" >/dev/null 2>&1 || true
-    ln -sf "$VENV/bin/password-manager" "$HOME/.local/bin/password-manager"
+    ln -sf "$cli" "$HOME/.local/bin/password-manager"
     if [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ]; then
-        LAUNCH_CMD=(nohup "$VENV/bin/python" -m password_manager)
+        LAUNCH_CMD=(nohup "${run[@]}")
     fi
     info "Added \"$APP_NAME\" to your applications menu, and the command ~/.local/bin/password-manager."
 }
@@ -267,6 +279,35 @@ install_app() {
     VERSION="$("$VENV/bin/python" -c 'import password_manager as p; print(p.__version__)')"
 }
 
+# Build a standalone binary for this machine. Use it only if its self-test passes; otherwise
+# the launcher runs the app from the Python environment, so a failed build never fails the install.
+build_binary() {
+    BUILT=""
+    if [ "${PM_NO_BINARY:-0}" = 1 ]; then return 0; fi
+    info "Building the native app for this machine (PyInstaller, about a minute)..."
+    local work out exe log="$INSTALL_DIR/binary-build.log"
+    work="$(mktemp -d)"
+    if "$VENV/bin/python" -m pip install --quiet --disable-pip-version-check "pyinstaller>=6.11" >"$log" 2>&1 \
+        && "$VENV/bin/python" -m PyInstaller --noconfirm --clean --log-level WARN --distpath "$work/dist" \
+            --workpath "$work/build" "$SRC/packaging/PasswordManager.spec" >>"$log" 2>&1; then
+        if [ "$OS" = Darwin ]; then
+            out="$work/dist/$APP_NAME.app"; exe="$out/Contents/MacOS/PasswordManager"
+        else
+            out="$work/dist/PasswordManager"; exe="$out"
+        fi
+        if "$exe" --self-test >>"$log" 2>&1; then
+            rm -rf "$INSTALL_DIR/bin"
+            mkdir -p "$INSTALL_DIR/bin"
+            mv "$out" "$INSTALL_DIR/bin/"
+            BUILT="$INSTALL_DIR/bin/$(basename "$out")"
+            rm -rf "$work" "$log"
+            return 0
+        fi
+    fi
+    rm -rf "$work"
+    warn "The native build didn't work here (details: $log). Using the Python environment instead."
+}
+
 configure() {
     local args=(-m password_manager setup)
     [ "$RECONFIGURE" -eq 1 ] && args+=(--reconfigure)
@@ -306,6 +347,7 @@ main() {
     esac
     VENV="$INSTALL_DIR/venv"
     LAUNCH_CMD=()
+    BUILT=""
     VERSION="?"
 
     if [ "$UNINSTALL" -eq 1 ]; then
@@ -329,6 +371,7 @@ main() {
     resolve_source
     if [ "$OS" = Darwin ]; then mac_deps; else linux_deps; fi
     install_app
+    build_binary
     configure
     if [ "$OS" = Darwin ]; then mac_launcher; else linux_launcher; fi
 

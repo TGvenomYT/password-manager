@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "password-manager-mark-iv"
+dynamic = ["version"]
+description = "Local password vault: Tkinter GUI, MySQL storage, Fernet encryption, GPG-protected DB credential."
+readme = "readme.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+dependencies = [
+    "cryptography>=42",
+    "mysql-connector-python>=8.4,<10",
+    "bcrypt>=4.1,<6",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.gui-scripts]
+password-manager = "password_manager.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["password_manager*"]
+
+[tool.setuptools.dynamic]
+version = { attr = "password_manager.__version__" }
+
+[tool.setuptools.package-data]
+"*" = ["*.png"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

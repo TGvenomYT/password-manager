@@ -1,2 +1,4 @@
-cryptography 
-mysql.connector
+# Runtime dependencies (the installers use pyproject.toml; this file is for manual setups).
+cryptography>=42
+mysql-connector-python>=8.4,<10
+bcrypt>=4.1,<6

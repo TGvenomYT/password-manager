@@ -1,0 +1,19 @@
+# Secrets: never commit these.
+# passwd.txt is already tracked; ignoring it here only takes effect after: git rm --cached passwd.txt
+passwd.txt
+*.gpg
+config.json
+passwd.txt
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+venv/
+.venv/
+
+# Build output
+build/
+
+# OS
+.DS_Store

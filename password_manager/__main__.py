@@ -40,14 +40,13 @@ def self_test() -> int:
     import os
     import tkinter
 
-    import bcrypt  # noqa: F401
-    import mysql.connector  # noqa: F401
-
     from . import crypto
     from .app import ASSETS
 
-    for plugin in ("caching_sha2_password", "mysql_native_password"):  # loaded dynamically by the connector
-        importlib.import_module(f"mysql.connector.plugins.{plugin}")
+    # The connector loads its auth plugins dynamically, so check that the build bundled them.
+    for module in ("bcrypt", "mysql.connector", "mysql.connector.plugins.caching_sha2_password",
+                   "mysql.connector.plugins.mysql_native_password"):
+        importlib.import_module(module)
     crypto.derive_kek("self-test", crypto.KdfParams(salt=b"\0" * 16, n=2**10))
     images = sorted(ASSETS.rglob("*.png"))
     if len(images) < 40:

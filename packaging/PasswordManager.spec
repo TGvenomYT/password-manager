@@ -4,7 +4,7 @@
 #     pip install . "pyinstaller>=6.11"
 #     pyinstaller --noconfirm packaging/PasswordManager.spec
 # Output in dist/: "Password Manager.app" on macOS, PasswordManager.exe on Windows,
-# PasswordManager on Linux.
+# PasswordManager on Linux. The icons come from packaging/icon.svg (see make_icons.py).
 import os
 import sys
 
@@ -27,6 +27,7 @@ if sys.platform == "darwin":
     app = BUNDLE(
         coll,
         name="Password Manager.app",
+        icon=os.path.join(SPECPATH, "icon.icns"),
         bundle_identifier="io.github.tgvenomyt.passwordmanager",
         version=__version__,
         info_plist={"CFBundleDisplayName": "Password Manager", "NSHighResolutionCapable": True,
@@ -37,5 +38,6 @@ else:
         pyz, a.scripts, a.binaries, a.datas, [],
         name="PasswordManager",
         console=sys.platform != "win32",  # Windows: no console window behind the GUI
+        icon=os.path.join(SPECPATH, "icon.ico") if sys.platform == "win32" else None,
         upx=False,
     )

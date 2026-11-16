@@ -113,7 +113,8 @@ mac_launcher() {
         info "Added \"$APP_NAME\" (native build) to $HOME/Applications (also searchable in Spotlight)."
         return
     fi
-    mkdir -p "$app/Contents/MacOS"
+    mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
+    cp "$SRC/packaging/icon.icns" "$app/Contents/Resources/icon.icns"
     cat >"$app/Contents/MacOS/PasswordManager" <<EOF
 #!/bin/bash
 exec "$VENV/bin/python" -m password_manager "\$@"
@@ -128,6 +129,7 @@ EOF
     <key>CFBundleDisplayName</key><string>$APP_NAME</string>
     <key>CFBundleIdentifier</key><string>$BUNDLE_ID</string>
     <key>CFBundleExecutable</key><string>PasswordManager</string>
+    <key>CFBundleIconFile</key><string>icon.icns</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>LSMinimumSystemVersion</key><string>11.0</string>
@@ -219,13 +221,14 @@ linux_launcher() {
     if [ -n "$BUILT" ]; then run=("$BUILT"); cli="$BUILT"; fi
     exec_line="\"${run[0]}\"${run[1]:+ ${run[*]:1}}"
     mkdir -p "$data/applications" "$HOME/.local/bin"
+    cp "$SRC/password_manager/assets/app-icon.png" "$INSTALL_DIR/icon.png"
     cat >"$desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=$APP_NAME
 Comment=Local encrypted password vault
 Exec=$exec_line
-Icon=dialog-password
+Icon=$INSTALL_DIR/icon.png
 Terminal=false
 Categories=Utility;Security;
 EOF

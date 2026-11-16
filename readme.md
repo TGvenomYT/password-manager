@@ -25,6 +25,7 @@
 ✅ Add, View, and Delete Passwords
 ✅ Every password encrypted with **Fernet** (AES-128-CBC + HMAC-SHA256)
 ✅ Encryption key protected by your **master password** (scrypt), never stored in plaintext
+✅ **Recovery key** to reset a forgotten master password, without weakening the encryption
 ✅ MySQL login protected by **GnuPG** (AES-256), with a dedicated least-privilege MySQL user
 ✅ Brute-force protection: growing lockout after 5 wrong master passwords, and **no data is ever deleted**
 ✅ **One-click installers** for macOS, Linux and Windows
@@ -70,25 +71,34 @@ You use two secrets:
 |---|---|---|
 | **GPG passphrase** | The MySQL password, stored as `db-credential.gpg` | At launch. gpg-agent usually remembers it for about 10 minutes, depending on its version and settings |
 | **Master password** | Your vault: the key that decrypts your passwords | Every time you open the vault |
+| **Recovery key** | A second way to unwrap the same data key, shown once for you to write down | Only if you forget the master password |
 
 ```
 master password ──scrypt (128 MiB, random salt)──▶ key-encryption key
                                                        │ unwraps
                                                        ▼
-vault_meta.wrapped_key ──────────────────────────▶ data key (Fernet)
+vault_meta.wrapped_key ──────────────────────────▶ data key (Fernet) ◀── recovery key (HKDF), via
+                                                       │                 vault_meta.recovery_wrapped_key
                                                        │ decrypts
                                                        ▼
 passwords.password ──────────────────────────────▶ your passwords
 ```
 
 - The **data key** is random and only stored *wrapped* (encrypted) with a key derived from your master password. Someone who copies the whole database can't decrypt anything without the master password, and each guess costs them a 128 MiB scrypt computation.
+- The **recovery key** is 25 random characters (125 bits) that wrap the same data key a second time. It's far too long to guess, and wrong recovery keys count towards the same lockout as wrong master passwords.
 - After **5 wrong master passwords** the vault locks for 30 seconds, then 60, 120, and so on up to 1 hour. The counter is stored in the database, so restarting the app doesn't reset it.
 - Files are stored per user, with owner-only permissions:
   - macOS: `~/Library/Application Support/PasswordManager/`
   - Linux: `~/.config/password-manager/`
   - Windows: `%APPDATA%\PasswordManager\`
 
-⚠️ **There is no recovery.** If you forget the master password, the vault can't be decrypted. Nobody, including the developer, can get it back.
+### 🔑 Forgot your master password?
+
+When you create the vault, the app shows a **recovery key** like `GT7ZY-M5DV4-BQJAG-3N88J-V4YRC`. Write it down, or save it as a file somewhere other than this computer. Vaults made before recovery keys existed get the same prompt after their next unlock. You can make a new key any time from **New recovery key** on the menu; it replaces the old one.
+
+To use it: on the unlock screen, click **Forgot your master password?**, enter the recovery key and a new master password. The app then offers you a fresh recovery key.
+
+⚠️ If you lose **both** the master password and the recovery key, the vault can't be decrypted. Nobody, including the developer, can get it back.
 
 ---
 
@@ -136,6 +146,7 @@ dist/PasswordManager --self-test              # macOS: "dist/Password Manager.ap
 |---|---|
 | "Could not connect to MySQL" | Start the server: `brew services start mysql` / `sudo systemctl start mysql` / the *PasswordManagerMySQL* service |
 | Forgot the GPG passphrase | `./install.sh --reconfigure` (your vault is unaffected) |
+| Forgot the master password | **Forgot your master password?** on the unlock screen, with your recovery key |
 | gpg seems stuck | `gpgconf --kill gpg-agent` |
 | Something else | Check `password-manager.log` in the settings folder above |
 

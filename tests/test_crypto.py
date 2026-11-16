@@ -49,3 +49,29 @@ def test_lockout_schedule():
     assert [lockout_seconds(n) for n in range(5, 9)] == [30, 60, 120, 240]
     assert lockout_seconds(50) == 3600
     assert format_duration(90) == "1m 30s" and format_duration(0.2) == "1s"
+
+
+def test_recovery_key_format_and_typing_forgiveness():
+    key = crypto.new_recovery_key()
+    groups = key.split("-")
+    assert len(groups) == 5 and all(len(g) == 5 for g in groups)
+    assert crypto.new_recovery_key() != key
+    typed = " " + key.lower().replace("-", " ").replace("0", "o").replace("1", "l") + " "
+    assert crypto.normalize_recovery_key(typed) == key.replace("-", "")
+    salt = os.urandom(16)
+    data_key = Fernet.generate_key()
+    wrapped = crypto.wrap_key(data_key, crypto.derive_recovery_kek(key, salt))
+    assert crypto.unwrap_key(wrapped, crypto.derive_recovery_kek(typed, salt)) == data_key
+
+
+@pytest.mark.parametrize("bad", ["", "ABCDE-FGHJK", "U" * 25, "ABCDE-FGHJK-MNPQR-STVWX-YZ012-3"])
+def test_malformed_recovery_key_is_rejected(bad):
+    with pytest.raises(ValueError):
+        crypto.normalize_recovery_key(bad)
+
+
+def test_wrong_recovery_key_is_rejected():
+    salt = os.urandom(16)
+    wrapped = crypto.wrap_key(Fernet.generate_key(), crypto.derive_recovery_kek(crypto.new_recovery_key(), salt))
+    with pytest.raises(InvalidToken):
+        crypto.unwrap_key(wrapped, crypto.derive_recovery_kek(crypto.new_recovery_key(), salt))

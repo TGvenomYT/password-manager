@@ -250,13 +250,14 @@ function Build-Binary([string]$Source) {
     }
 }
 
-function New-Shortcut([string]$Path, [string]$Target, [string]$Arguments) {
+function New-Shortcut([string]$Path, [string]$Target, [string]$Arguments, [string]$Icon) {
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($Path)
     $shortcut.TargetPath = $Target
     $shortcut.Arguments = $Arguments
     $shortcut.WorkingDirectory = $InstallDir
     $shortcut.Description = 'Local encrypted password vault'
+    if ($Icon) { $shortcut.IconLocation = "$Icon,0" }
     $shortcut.Save()
 }
 
@@ -303,7 +304,9 @@ function Invoke-Main {
     if ($LASTEXITCODE -ne 0) { throw 'Setup did not complete. Fix the problem above and run the installer again.' }
 
     if ($binary) { $target = $binary; $targetArgs = '' } else { $target = $VenvPythonW; $targetArgs = '-m password_manager' }
-    foreach ($link in Get-ShortcutPaths) { New-Shortcut $link $target $targetArgs }
+    $icon = Join-Path $InstallDir 'icon.ico'
+    Copy-Item -Force -Path (Join-Path $source 'packaging\icon.ico') -Destination $icon
+    foreach ($link in Get-ShortcutPaths) { New-Shortcut $link $target $targetArgs $icon }
     $version = Invoke-Probe $VenvPython @('-c', 'import password_manager as p; print(p.__version__)')
     Write-Info "Password Manager $version is installed (Start Menu and Desktop shortcuts added)."
     if (-not $NoLaunch) {

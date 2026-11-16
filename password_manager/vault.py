@@ -18,7 +18,9 @@ single transaction.
 
 from __future__ import annotations
 
+import base64
 import logging
+import os
 import time
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Sequence, Tuple
@@ -30,7 +32,7 @@ from . import crypto
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3  # 3: recovery key columns
 MIN_MASTER_PASSWORD_LENGTH = 8
 MAX_USERNAME_LENGTH = 255
 
@@ -46,10 +48,21 @@ class VaultError(Exception):
 
 
 class WrongMasterPassword(VaultError):
+    message = "Wrong master password."
+
     def __init__(self, failed_attempts: int, locked_for: float) -> None:
         self.failed_attempts = failed_attempts
         self.locked_for = locked_for
-        super().__init__("Wrong master password.")
+        super().__init__(self.message)
+
+
+class WrongRecoveryKey(WrongMasterPassword):
+    """Counts towards the same lockout as a wrong master password."""
+    message = "Wrong recovery key."
+
+
+class NoRecoveryKey(VaultError):
+    pass
 
 
 class VaultLocked(VaultError):
@@ -115,6 +128,7 @@ class Vault:
         self._clock = clock
         self._new_kdf_params = kdf_params
         self._fernet: Optional[Fernet] = None
+        self._data_key: Optional[bytes] = None
 
     # ------------------------------------------------------------------ schema
 
@@ -134,13 +148,23 @@ class Vault:
                 kdf_p           INT UNSIGNED     NULL,
                 wrapped_key     TEXT             NULL,
                 failed_attempts INT UNSIGNED     NOT NULL DEFAULT 0,
-                locked_until    DOUBLE           NOT NULL DEFAULT 0
+                locked_until    DOUBLE           NOT NULL DEFAULT 0,
+                recovery_salt        VARCHAR(64) NULL,
+                recovery_wrapped_key TEXT        NULL
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """
         )
         cur.execute(
             "INSERT IGNORE INTO vault_meta (id, schema_version) VALUES (1, %s)", (SCHEMA_VERSION,)
         )
+        meta_columns = self._columns("vault_meta")
+        added = [f"ADD COLUMN {name} {sql}" for name, sql in
+                 (("recovery_salt", "VARCHAR(64) NULL"), ("recovery_wrapped_key", "TEXT NULL"))
+                 if name not in meta_columns]
+        if added:  # vault made before recovery keys existed
+            cur.execute("ALTER TABLE vault_meta " + ", ".join(added))
+        cur.execute("UPDATE vault_meta SET schema_version = %s WHERE id = 1 AND schema_version < %s",
+                    (SCHEMA_VERSION, SCHEMA_VERSION))
         if not self._table_exists("passwords"):
             cur.execute(
                 """
@@ -184,6 +208,9 @@ class Vault:
     def lockout_remaining(self) -> float:
         return max(0.0, float(self._meta()["locked_until"]) - self._clock())
 
+    def has_recovery_key(self) -> bool:
+        return self._meta()["recovery_wrapped_key"] is not None
+
     # ------------------------------------------------------------- lock/unlock
 
     def create(self, master_password: str) -> None:
@@ -207,7 +234,7 @@ class Vault:
                 data_key = crypto.unwrap_key(meta["wrapped_key"], crypto.derive_kek(master_password, params))
             except InvalidToken:
                 raise self._failed_attempt() from None
-            self._fernet = Fernet(data_key)
+            self._open(data_key)
         else:
             legacy_keys, legacy_master = self._legacy_locker()
             if legacy_master is None:
@@ -219,6 +246,63 @@ class Vault:
 
     def lock(self) -> None:
         self._fernet = None
+        self._data_key = None
+
+    # ------------------------------------------------------------ recovery key
+
+    def set_recovery_key(self, recovery_key: str) -> None:
+        """Store a recovery key for the unlocked vault, replacing any earlier one."""
+        if self._data_key is None:
+            raise VaultError("The vault is locked.")
+        salt = os.urandom(crypto.SALT_BYTES)
+        wrapped = crypto.wrap_key(self._data_key, crypto.derive_recovery_kek(recovery_key, salt))
+        self._reconnect()
+        cur = self._cursor()
+        cur.execute("UPDATE vault_meta SET recovery_salt = %s, recovery_wrapped_key = %s WHERE id = 1",
+                    (base64.b64encode(salt).decode("ascii"), wrapped))
+        self._conn.commit()
+        cur.close()
+
+    def recover(self, recovery_key: str, new_master_password: str) -> None:
+        """Open the vault with the recovery key and replace the forgotten master password.
+        The recovery key keeps working until a new one is saved."""
+        remaining = self.lockout_remaining()
+        if remaining > 0:
+            raise VaultLocked(remaining)
+        try:
+            crypto.normalize_recovery_key(recovery_key)
+        except ValueError as exc:  # malformed: not counted as a failed attempt
+            raise VaultError(str(exc)) from None
+        check_master_password_strength(new_master_password)
+        meta = self._meta()
+        if meta["recovery_wrapped_key"] is None:
+            raise NoRecoveryKey("This vault has no recovery key, so its master password can't be reset.")
+        salt = base64.b64decode(meta["recovery_salt"])
+        try:
+            data_key = crypto.unwrap_key(meta["recovery_wrapped_key"], crypto.derive_recovery_kek(recovery_key, salt))
+        except InvalidToken:
+            raise self._failed_attempt(WrongRecoveryKey) from None
+        params = self._new_kdf_params()
+        wrapped = crypto.wrap_key(data_key, crypto.derive_kek(new_master_password, params))
+        self._reconnect()
+        cur = self._cursor()
+        try:
+            cur.execute("SELECT recovery_wrapped_key FROM vault_meta WHERE id = 1 FOR UPDATE")
+            (current,) = cur.fetchone()
+            if current is None or _text(current) != _text(meta["recovery_wrapped_key"]):
+                raise VaultError("The recovery key was changed in another window. Try again.")
+            cur.execute(
+                "UPDATE vault_meta SET kdf = 'scrypt', kdf_salt = %s, kdf_n = %s, kdf_r = %s, kdf_p = %s, "
+                "wrapped_key = %s, failed_attempts = 0, locked_until = 0 WHERE id = 1",
+                (params.salt_b64, params.n, params.r, params.p, wrapped),
+            )
+            self._conn.commit()
+        except BaseException:
+            self._conn.rollback()
+            raise
+        finally:
+            cur.close()
+        self._open(data_key)
 
     # ----------------------------------------------------------------- entries
 
@@ -268,6 +352,10 @@ class Vault:
 
     # ---------------------------------------------------------------- internal
 
+    def _open(self, data_key: bytes) -> None:
+        self._data_key = data_key
+        self._fernet = Fernet(data_key)
+
     def _require_unlocked(self) -> Fernet:
         if self._fernet is None:
             raise VaultError("The vault is locked.")
@@ -285,8 +373,8 @@ class Vault:
         self._reconnect()
         cur = self._cursor(dictionary=True)
         cur.execute(
-            "SELECT kdf, kdf_salt, kdf_n, kdf_r, kdf_p, wrapped_key, failed_attempts, locked_until "
-            "FROM vault_meta WHERE id = 1"
+            "SELECT kdf, kdf_salt, kdf_n, kdf_r, kdf_p, wrapped_key, failed_attempts, locked_until, "
+            "recovery_salt, recovery_wrapped_key FROM vault_meta WHERE id = 1"
         )
         row = cur.fetchone()
         self._conn.commit()
@@ -401,9 +489,9 @@ class Vault:
             except Exception:  # the table is already empty; a leftover table is harmless
                 log.warning("Could not drop the empty legacy locker table.", exc_info=True)
             log.info("Migrated legacy vault: %d entries re-encrypted, %d unreadable.", len(updates), unreadable)
-        self._fernet = fernet
+        self._open(data_key)
 
-    def _failed_attempt(self) -> WrongMasterPassword:
+    def _failed_attempt(self, error=WrongMasterPassword) -> WrongMasterPassword:
         """Persist one more failed unlock and return the error to raise."""
         self._reconnect()
         cur = self._cursor()
@@ -421,7 +509,7 @@ class Vault:
             raise
         finally:
             cur.close()
-        return WrongMasterPassword(failed, wait)
+        return error(failed, wait)
 
     def _reset_failures(self) -> None:
         cur = self._cursor()

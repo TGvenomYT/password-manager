@@ -41,7 +41,7 @@ def self_test() -> int:
     import tkinter
 
     from . import crypto
-    from .app import ASSETS
+    from .app import APP_ICON, ASSETS
 
     # The connector loads its auth plugins dynamically, so check that the build bundled them.
     for module in ("bcrypt", "mysql.connector", "mysql.connector.plugins.caching_sha2_password",
@@ -51,6 +51,8 @@ def self_test() -> int:
     images = sorted(ASSETS.rglob("*.png"))
     if len(images) < 40:
         raise RuntimeError(f"missing GUI assets: found {len(images)} of 40 images in {ASSETS}")
+    if not APP_ICON.is_file():
+        raise RuntimeError(f"missing app icon: {APP_ICON}")
     tkinter.Tcl().eval("info patchlevel")
     if sys.platform in ("darwin", "win32") or os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
         root = tkinter.Tk()

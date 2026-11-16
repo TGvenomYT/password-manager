@@ -2,8 +2,10 @@ import bcrypt
 import pytest
 from cryptography.fernet import Fernet
 
+from password_manager import crypto
 from password_manager.vault import (
-    FREE_ATTEMPTS, Vault, VaultCorrupted, VaultError, VaultLocked, WeakMasterPassword, WrongMasterPassword,
+    FREE_ATTEMPTS, NoRecoveryKey, Vault, VaultCorrupted, VaultError, VaultLocked, WeakMasterPassword,
+    WrongMasterPassword, WrongRecoveryKey,
 )
 
 MASTER = "correct horse battery"
@@ -201,3 +203,99 @@ def test_legacy_unreadable_entry_is_kept_and_flagged(conn, fast_kdf):
     vault = make_vault(conn, fast_kdf)
     vault.unlock(MASTER)
     assert {e.username: e.password for e in vault.entries()} == {"good": "pw", "broken": None}
+
+
+# ----------------------------------------------------------------- recovery key
+
+def test_recovery_key_replaces_a_forgotten_master_password(conn, fast_kdf):
+    vault = make_vault(conn, fast_kdf)
+    vault.create(MASTER)
+    vault.add_entry("bank", "s3cret")
+    assert not vault.has_recovery_key()
+    key = crypto.new_recovery_key()
+    vault.set_recovery_key(key)
+    assert vault.has_recovery_key()
+
+    forgot = make_vault(conn, fast_kdf)
+    with pytest.raises(WeakMasterPassword):
+        forgot.recover(key, "short")
+    forgot.recover(key.lower().replace("-", " "), "brand new password")
+    assert [(e.username, e.password) for e in forgot.entries()] == [("bank", "s3cret")]
+
+    later = make_vault(conn, fast_kdf)
+    with pytest.raises(WrongMasterPassword):
+        later.unlock(MASTER)  # the old master password no longer works
+    later.unlock("brand new password")
+    assert [e.password for e in later.entries()] == ["s3cret"]
+    make_vault(conn, fast_kdf).recover(key, "third password!")  # the key keeps working
+
+
+def test_new_recovery_key_replaces_the_old_one(conn, fast_kdf):
+    vault = make_vault(conn, fast_kdf)
+    vault.create(MASTER)
+    old, new = crypto.new_recovery_key(), crypto.new_recovery_key()
+    vault.set_recovery_key(old)
+    vault.set_recovery_key(new)
+    with pytest.raises(WrongRecoveryKey):
+        make_vault(conn, fast_kdf).recover(old, "brand new password")
+    make_vault(conn, fast_kdf).recover(new, "brand new password")
+
+
+def test_recovery_needs_an_unlocked_vault_to_set_and_a_key_to_use(conn, fast_kdf):
+    vault = make_vault(conn, fast_kdf)
+    vault.create(MASTER)
+    locked = make_vault(conn, fast_kdf)
+    with pytest.raises(VaultError):
+        locked.set_recovery_key(crypto.new_recovery_key())
+    with pytest.raises(NoRecoveryKey):
+        locked.recover(crypto.new_recovery_key(), "brand new password")
+    with pytest.raises(VaultError) as err:
+        locked.recover("not a key", "brand new password")
+    assert not isinstance(err.value, WrongMasterPassword)  # a typo isn't a failed attempt
+
+
+def test_wrong_recovery_keys_count_towards_the_lockout(conn, fast_kdf, clock):
+    vault = make_vault(conn, fast_kdf, clock)
+    vault.create(MASTER)
+    key = crypto.new_recovery_key()
+    vault.set_recovery_key(key)
+    other = make_vault(conn, fast_kdf, clock)
+    for _ in range(FREE_ATTEMPTS - 1):
+        with pytest.raises(WrongRecoveryKey):
+            other.recover(crypto.new_recovery_key(), "brand new password")
+    with pytest.raises(WrongRecoveryKey) as err:
+        other.recover(crypto.new_recovery_key(), "brand new password")
+    assert err.value.locked_for == 30
+    with pytest.raises(VaultLocked):
+        other.recover(key, "brand new password")
+    clock.now += 31
+    other.recover(key, "brand new password")
+    assert other.lockout_remaining() == 0
+
+
+def test_recovery_key_is_never_stored_in_plaintext(conn, fast_kdf):
+    vault = make_vault(conn, fast_kdf)
+    vault.create(MASTER)
+    key = crypto.new_recovery_key()
+    vault.set_recovery_key(key)
+    stored = dump_all_text(conn)
+    assert key not in stored and key.replace("-", "") not in stored
+
+
+def test_vault_from_before_recovery_keys_is_upgraded(conn, fast_kdf):
+    vault = make_vault(conn, fast_kdf)
+    vault.create(MASTER)
+    vault.add_entry("old", "entry")
+    cur = conn.cursor()
+    cur.execute("ALTER TABLE vault_meta DROP COLUMN recovery_salt, DROP COLUMN recovery_wrapped_key")
+    cur.execute("UPDATE vault_meta SET schema_version = 2")
+    conn.commit()
+    upgraded = make_vault(conn, fast_kdf)  # ensure_schema adds the columns back
+    upgraded.unlock(MASTER)
+    assert not upgraded.has_recovery_key()
+    upgraded.set_recovery_key(crypto.new_recovery_key())
+    assert [e.password for e in upgraded.entries()] == ["entry"]
+    cur.execute("SELECT schema_version FROM vault_meta")
+    assert cur.fetchone()[0] == 3
+    conn.commit()
+

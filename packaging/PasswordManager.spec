@@ -14,9 +14,9 @@ from password_manager import __version__
 
 a = Analysis(
     [os.path.join(SPECPATH, "launcher.py")],
-    datas=collect_data_files("password_manager"),  # the GUI artwork
-    # mysql-connector imports its auth plugins and error locales dynamically.
-    hiddenimports=collect_submodules("mysql.connector"),
+    datas=collect_data_files("password_manager"),  # the QML interface and the app icon
+    # mysql-connector imports its auth plugins dynamically; the QML engine loads Qt Quick on its own.
+    hiddenimports=collect_submodules("mysql.connector") + ["PySide6.QtQuick", "PySide6.QtQuickControls2"],
     excludes=["pytest", "PyInstaller"],
 )
 pyz = PYZ(a.pure)

@@ -14,13 +14,20 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python: ["3.13"]
         include:
-          - os: ubuntu-latest
-            python: "3.9"   # oldest supported (e.g. Debian 11)
+          - os: ubuntu-22.04  # newer Ubuntu runners no longer have Python 3.9
+            python: "3.9"     # oldest supported (e.g. Debian 11)
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - name: Qt's system libraries (Linux; install.sh installs the same for users)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libgl1 libegl1 libfontconfig1 \
+            libdbus-1-3 libxkbcommon0 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 \
+            libxcb-shape0 libxcb-render-util0 libxcb-image0
       - run: python -m pip install ".[test]"
       - name: Tests (database tests skip without a server)
         run: python -m pytest -q
@@ -50,6 +57,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Qt's system libraries (Linux; install.sh installs the same for users)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libgl1 libegl1 libfontconfig1 \
+            libdbus-1-3 libxkbcommon0 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 \
+            libxcb-shape0 libxcb-render-util0 libxcb-image0
       - run: python -m pip install ".[test]"
       - run: python -m pytest -q
         env:
@@ -67,6 +81,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Qt's system libraries (Linux; install.sh installs the same for users)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq libgl1 libegl1 libfontconfig1 \
+            libdbus-1-3 libxkbcommon0 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 \
+            libxcb-shape0 libxcb-render-util0 libxcb-image0
       - run: python -m pip install . "pyinstaller>=6.11"
       - run: python -m PyInstaller --noconfirm --clean --log-level WARN packaging/PasswordManager.spec
       - name: Self-test (macOS)
@@ -81,6 +102,39 @@ jobs:
         run: |
           $p = Start-Process -FilePath dist\PasswordManager.exe -ArgumentList '--self-test' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "self-test exited with $($p.ExitCode)" }
+
+  uninstaller:
+    name: uninstall.bat (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fake an install, uninstall it, then erase everything
+        shell: pwsh
+        run: |
+          $appDir = Join-Path $env:LOCALAPPDATA 'PasswordManager'
+          $venv = Join-Path $appDir 'app\venv'
+          New-Item -ItemType Directory -Force -Path $venv | Out-Null
+          Set-Content (Join-Path $venv 'marker.txt') 'x'
+          $links = @([Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('Desktop')) |
+            ForEach-Object { Join-Path $_ 'Password Manager.lnk' }
+          foreach ($link in $links) { New-Item -ItemType Directory -Force -Path (Split-Path $link) | Out-Null; Set-Content $link 'x' }
+          $cfg = Join-Path $env:APPDATA 'PasswordManager'
+          New-Item -ItemType Directory -Force -Path $cfg | Out-Null
+          Set-Content (Join-Path $cfg 'config.json') '{}'
+
+          cmd /c "uninstall.bat /nopause"
+          if ($LASTEXITCODE -ne 0) { throw "uninstall.bat exited with $LASTEXITCODE" }
+          if (Test-Path $appDir) { throw 'the app folder is still there' }
+          foreach ($link in $links) { if (Test-Path $link) { throw "shortcut left behind: $link" } }
+          if (-not (Test-Path (Join-Path $cfg 'config.json'))) { throw 'settings were removed without /all' }
+
+          'ERASE' | cmd /c "uninstall.bat /all /nopause"
+          if ($LASTEXITCODE -ne 0) { throw "uninstall.bat /all exited with $LASTEXITCODE" }
+          if (Test-Path $cfg) { throw 'settings are still there after /all' }
+
+          New-Item -ItemType Directory -Force -Path $cfg | Out-Null
+          'no' | cmd /c "uninstall.bat /all /nopause"
+          if (-not (Test-Path $cfg)) { throw '/all erased settings without ERASE' }
 
   lint-installers:
     runs-on: ubuntu-latest

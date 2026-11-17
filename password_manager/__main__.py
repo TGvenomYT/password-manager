@@ -37,28 +37,31 @@ def _configure_logging() -> None:
 def self_test() -> int:
     """Check that every runtime piece loads. The installers run this on a freshly built binary."""
     import importlib
-    import os
-    import tkinter
 
     from . import crypto
-    from .app import APP_ICON, ASSETS
+    from .app import ICON_FILES, MAIN_QML, self_test_ui
 
     # The connector loads its auth plugins dynamically, so check that the build bundled them.
     for module in ("bcrypt", "mysql.connector", "mysql.connector.plugins.caching_sha2_password",
-                   "mysql.connector.plugins.mysql_native_password"):
+                   "mysql.connector.plugins.mysql_native_password", "PySide6.QtQuick", "PySide6.QtQml"):
         importlib.import_module(module)
     crypto.derive_kek("self-test", crypto.KdfParams(salt=b"\0" * 16, n=2**10))
-    images = sorted(ASSETS.rglob("*.png"))
-    if len(images) < 40:
-        raise RuntimeError(f"missing GUI assets: found {len(images)} of 40 images in {ASSETS}")
-    if not APP_ICON.is_file():
-        raise RuntimeError(f"missing app icon: {APP_ICON}")
-    tkinter.Tcl().eval("info patchlevel")
-    if sys.platform in ("darwin", "win32") or os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"):
-        root = tkinter.Tk()
-        root.withdraw()
-        tkinter.PhotoImage(master=root, file=str(images[0]))
-        root.destroy()
+    for path in (*ICON_FILES, MAIN_QML):
+        if not path.is_file():
+            raise RuntimeError(f"missing file: {path}")
+    import ssl
+
+    import certifi
+    ssl.create_default_context(cafile=certifi.where())  # the leak check's certificate list is bundled and valid
+    import keyring  # email alerts keep their app password in the system password store
+
+    from . import alerts  # noqa: F401
+    backend = keyring.get_keyring()
+    if sys.platform in ("darwin", "win32") and type(backend).__module__.startswith("keyring.backends.fail"):
+        raise RuntimeError("no system password store backend was bundled")
+    problems = self_test_ui()
+    if problems:
+        raise RuntimeError("the interface didn't load:\n" + "\n".join(problems))
     print(f"Password Manager {__version__}: self-test OK")
     return 0
 

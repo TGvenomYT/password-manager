@@ -19,8 +19,10 @@ single transaction.
 from __future__ import annotations
 
 import base64
+import json
 import logging
 import os
+import re
 import time
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Sequence, Tuple
@@ -28,13 +30,18 @@ from typing import Callable, List, Optional, Sequence, Tuple
 import bcrypt
 from cryptography.fernet import Fernet, InvalidToken
 
-from . import crypto
+from . import crypto, totp
 
 log = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 3  # 3: recovery key columns
+SCHEMA_VERSION = 4  # 3: recovery key columns. 4: encrypted entry records, favourites, trash
 MIN_MASTER_PASSWORD_LENGTH = 8
 MAX_USERNAME_LENGTH = 255
+FIELD_LIMITS = {"title": 200, "username": MAX_USERNAME_LENGTH, "password": 4096, "website": 2048, "notes": 10_000,
+                "totp": 1024}
+HISTORY_LIMIT = 10  # earlier passwords kept per entry
+KINDS = ("login", "note")
+TRASH_DAYS = 30  # items in Recently Deleted are removed for good after this long
 
 # Lockout: the first FREE_ATTEMPTS failures are free. Each failure after that
 # locks the vault for BASE_LOCKOUT_SECONDS, doubling every time, up to the cap.
@@ -109,11 +116,33 @@ def _legacy_bcrypt_matches(password: str, hashed: str) -> bool:
         return False
 
 
+def site_host(url: str) -> str:
+    """'https://www.github.com/login' -> 'github.com'."""
+    host = re.sub(r"^[a-zA-Z][a-zA-Z0-9+.-]*://", "", url.strip())
+    host = re.split(r"[/?#]", host, maxsplit=1)[0].rsplit("@", 1)[-1].split(":")[0].lower()
+    return host[4:] if host.startswith("www.") else host
+
+
 @dataclass(frozen=True)
 class Entry:
     id: int
     username: str
     password: Optional[str]  # None if the entry can't be decrypted
+    title: str = ""
+    website: str = ""
+    notes: str = ""
+    favorite: bool = False
+    created_at: float = 0.0
+    updated_at: float = 0.0
+    deleted_at: Optional[float] = None
+    totp: str = ""            # 2FA secret or otpauth:// link
+    kind: str = "login"       # "login" or "note" (a secure note: no password needed)
+    history: tuple = ()       # earlier passwords: ({"password": ..., "changed": timestamp}, ...)
+
+    @property
+    def name(self) -> str:
+        """What the entry is called in lists: its title, else the website's host, else the user name."""
+        return self.title or site_host(self.website) or self.username or "Untitled"
 
 
 class Vault:
@@ -170,8 +199,13 @@ class Vault:
                 """
                 CREATE TABLE passwords (
                     id         INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-                    username   VARCHAR(255) NOT NULL,
-                    `password` TEXT         NOT NULL
+                    username   VARCHAR(255) NOT NULL DEFAULT '',
+                    `password` TEXT         NOT NULL,
+                    data       MEDIUMTEXT   NULL,
+                    favorite   TINYINT(1)   NOT NULL DEFAULT 0,
+                    created_at DOUBLE       NOT NULL DEFAULT 0,
+                    updated_at DOUBLE       NOT NULL DEFAULT 0,
+                    deleted_at DOUBLE       NULL
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """
             )
@@ -184,6 +218,13 @@ class Vault:
                 alters.append("ADD COLUMN id INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY FIRST")
             if columns.get("password") not in ("text", "mediumtext", "longtext"):
                 alters.append("MODIFY `password` TEXT")
+            # Schema 4: the whole entry lives encrypted in `data`; the old plaintext username
+            # and `password` columns are emptied once an entry is upgraded (see _upgrade_rows).
+            for name, sql in (("data", "MEDIUMTEXT NULL"), ("favorite", "TINYINT(1) NOT NULL DEFAULT 0"),
+                              ("created_at", "DOUBLE NOT NULL DEFAULT 0"),
+                              ("updated_at", "DOUBLE NOT NULL DEFAULT 0"), ("deleted_at", "DOUBLE NULL")):
+                if name not in columns:
+                    alters.append(f"ADD COLUMN {name} {sql}")
             if alters:
                 cur.execute("ALTER TABLE passwords " + ", ".join(alters))
         self._conn.commit()
@@ -306,55 +347,233 @@ class Vault:
 
     # ----------------------------------------------------------------- entries
 
-    def add_entry(self, username: str, password: str) -> int:
+    def add_entry(self, username: str, password: str, *, title: str = "", website: str = "",
+                  notes: str = "", favorite: bool = False, totp: str = "", kind: str = "login") -> int:
         fernet = self._require_unlocked()
-        username = username.strip()
-        if not username:
-            raise ValueError("Username cannot be empty.")
-        if len(username) > MAX_USERNAME_LENGTH:
-            raise ValueError(f"Username is longer than {MAX_USERNAME_LENGTH} characters.")
-        if not password:
-            raise ValueError("Password cannot be empty.")
-        token = fernet.encrypt(password.encode("utf-8")).decode("ascii")
+        token = self._seal(fernet, _record(title, username, password, website, notes, totp, kind))
+        now = self._clock()
         self._reconnect()
         cur = self._cursor()
-        cur.execute("INSERT INTO passwords (username, `password`) VALUES (%s, %s)", (username, token))
+        cur.execute(
+            "INSERT INTO passwords (username, `password`, data, favorite, created_at, updated_at) "
+            "VALUES ('', '', %s, %s, %s, %s)", (token, int(bool(favorite)), now, now))
         self._conn.commit()
         entry_id = cur.lastrowid
         cur.close()
         return entry_id
 
-    def entries(self) -> List[Entry]:
+    def update_entry(self, entry_id: int, *, title: str, username: str, password: str,
+                     website: str = "", notes: str = "", totp: str = "", kind: str = "login") -> None:
+        """Save changes. A changed password is kept in the entry's history."""
         fernet = self._require_unlocked()
-        self._reconnect()
-        cur = self._cursor()
-        cur.execute("SELECT id, username, `password` FROM passwords ORDER BY username, id")
-        rows = cur.fetchall()
-        self._conn.commit()  # end the read snapshot so the next read sees fresh data
-        cur.close()
-        result = []
-        for entry_id, username, token in rows:
-            plaintext = _try_decrypt([fernet], token)
-            result.append(
-                Entry(entry_id, username or "", plaintext.decode("utf-8", "replace") if plaintext else None)
-            )
-        return result
+        current = [self._decode(fernet, row) for row in self._rows(f"id = {int(entry_id)}")]
+        history = list(current[0].history) if current else []
+        if current and current[0].password and current[0].password != password:
+            history.insert(0, {"password": current[0].password, "changed": self._clock()})
+        token = self._seal(fernet, _record(title, username, password, website, notes, totp, kind,
+                                           history[:HISTORY_LIMIT]))
+        self._execute(
+            "UPDATE passwords SET username = '', `password` = '', data = %s, updated_at = %s, "
+            "created_at = IF(created_at = 0, %s, created_at) WHERE id = %s",
+            (token, self._clock(), self._clock(), entry_id))
+
+    def import_entries(self, records: Sequence[dict]) -> Tuple[int, int]:
+        """Add many entries in one transaction. Returns (added, skipped): duplicates of existing
+        entries and rows that aren't valid entries are skipped."""
+        fernet = self._require_unlocked()
+        seen = {(e.title, e.website, e.username, e.password) for e in self.entries() + self.entries(trash=True)}
+        rows, skipped, now = [], 0, self._clock()
+        for item in records:
+            secret = item.get("totp", "") or ""
+            if secret and not totp.is_valid(secret):
+                secret = ""  # keep the login even if its 2FA value can't be used (e.g. a Steam guard link)
+            try:
+                record = _record(item.get("title", ""), item.get("username", ""), item.get("password", ""),
+                                 item.get("website", ""), item.get("notes", ""), secret,
+                                 item.get("kind", "login"), item.get("history") or [])
+            except ValueError:  # no password, no name, a bad 2FA key, or a field that's too long
+                skipped += 1
+                continue
+            key = (record["title"], record["website"], record["username"], record["password"])
+            if key in seen:
+                skipped += 1
+                continue
+            seen.add(key)
+            rows.append((self._seal(fernet, record), int(bool(item.get("favorite"))), now, now))
+        if rows:
+            self._reconnect()
+            cur = self._cursor()
+            try:
+                cur.executemany(
+                    "INSERT INTO passwords (username, `password`, data, favorite, created_at, updated_at) "
+                    "VALUES ('', '', %s, %s, %s, %s)", rows)
+                self._conn.commit()
+            except BaseException:
+                self._conn.rollback()
+                raise
+            finally:
+                cur.close()
+        return len(rows), skipped
+
+    def entries(self, trash: bool = False) -> List[Entry]:
+        """Saved entries, sorted by name. With trash=True, the ones in Recently Deleted."""
+        fernet = self._require_unlocked()
+        where = "deleted_at IS NOT NULL" if trash else "deleted_at IS NULL"
+        result = [self._decode(fernet, row) for row in self._rows(where)]
+        return sorted(result, key=lambda e: (e.name.lower(), e.id))
+
+    def set_favorite(self, entry_id: int, favorite: bool) -> None:
+        self._require_unlocked()
+        self._execute("UPDATE passwords SET favorite = %s WHERE id = %s", (int(bool(favorite)), entry_id))
+
+    def trash_entry(self, entry_id: int) -> None:
+        """Move to Recently Deleted; it's removed for good after TRASH_DAYS."""
+        self._require_unlocked()
+        self._execute("UPDATE passwords SET deleted_at = %s WHERE id = %s", (self._clock(), entry_id))
+
+    def restore_entry(self, entry_id: int) -> None:
+        self._require_unlocked()
+        self._execute("UPDATE passwords SET deleted_at = NULL WHERE id = %s", (entry_id,))
+
+    def delete_entry(self, entry_id: int) -> None:
+        """Delete permanently."""
+        self._require_unlocked()
+        self._execute("DELETE FROM passwords WHERE id = %s", (entry_id,))
+
+    def empty_trash(self) -> int:
+        self._require_unlocked()
+        return self._execute("DELETE FROM passwords WHERE deleted_at IS NOT NULL")
 
     def delete_by_username(self, username: str) -> int:
-        self._require_unlocked()
+        """Permanently delete every entry with this user name. Returns how many."""
+        fernet = self._require_unlocked()
+        name = username.strip()
+        ids = [e.id for e in (self._decode(fernet, row) for row in self._rows("1 = 1")) if e.username == name]
+        if not ids:
+            return 0
+        return self._execute(f"DELETE FROM passwords WHERE id IN ({', '.join(['%s'] * len(ids))})", tuple(ids))
+
+    def change_master_password(self, current: str, new: str) -> None:
+        """Re-wrap the data key with a new master password. A wrong current password counts as a
+        failed attempt. The recovery key keeps working."""
+        remaining = self.lockout_remaining()
+        if remaining > 0:
+            raise VaultLocked(remaining)
+        check_master_password_strength(new)
+        meta = self._meta()
+        if meta["wrapped_key"] is None:
+            raise VaultError("Unlock the vault first.")
+        params = crypto.KdfParams.from_db(meta["kdf_salt"], meta["kdf_n"], meta["kdf_r"], meta["kdf_p"])
+        try:
+            data_key = crypto.unwrap_key(meta["wrapped_key"], crypto.derive_kek(current, params))
+        except InvalidToken:
+            raise self._failed_attempt() from None
+        new_params = self._new_kdf_params()
+        wrapped = crypto.wrap_key(data_key, crypto.derive_kek(new, new_params))
         self._reconnect()
         cur = self._cursor()
-        cur.execute("DELETE FROM passwords WHERE username = %s", (username.strip(),))
-        deleted = cur.rowcount
-        self._conn.commit()
-        cur.close()
-        return deleted
+        try:
+            cur.execute("SELECT wrapped_key FROM vault_meta WHERE id = 1 FOR UPDATE")
+            (stored,) = cur.fetchone()
+            if _text(stored) != _text(meta["wrapped_key"]):
+                raise VaultError("The master password was changed in another window. Try again.")
+            cur.execute(
+                "UPDATE vault_meta SET kdf = 'scrypt', kdf_salt = %s, kdf_n = %s, kdf_r = %s, kdf_p = %s, "
+                "wrapped_key = %s, failed_attempts = 0, locked_until = 0 WHERE id = 1",
+                (new_params.salt_b64, new_params.n, new_params.r, new_params.p, wrapped))
+            self._conn.commit()
+        except BaseException:
+            self._conn.rollback()
+            raise
+        finally:
+            cur.close()
+        self._open(data_key)
 
     # ---------------------------------------------------------------- internal
 
     def _open(self, data_key: bytes) -> None:
         self._data_key = data_key
         self._fernet = Fernet(data_key)
+        self._upgrade_rows()
+        self._execute("DELETE FROM passwords WHERE deleted_at IS NOT NULL AND deleted_at < %s",
+                      (self._clock() - TRASH_DAYS * 86400,))
+
+    def _upgrade_rows(self) -> None:
+        """Schema 4: move entries saved by older versions (plaintext username, encrypted password)
+        into the encrypted record. Unreadable entries are left as they are."""
+        fernet = self._fernet
+        self._reconnect()
+        cur = self._cursor()
+        try:
+            cur.execute("SELECT id, username, `password` FROM passwords WHERE data IS NULL FOR UPDATE")
+            updates, now = [], self._clock()
+            for entry_id, username, token in cur.fetchall():
+                plaintext = _try_decrypt([fernet], token)
+                if plaintext is None:
+                    continue
+                name = _text(username or "").strip()
+                record = {"title": name, "username": name, "password": plaintext.decode("utf-8", "replace"),
+                          "website": "", "notes": ""}
+                updates.append((self._seal(fernet, record), now, now, entry_id))
+            if updates:
+                cur.executemany(
+                    "UPDATE passwords SET data = %s, username = '', `password` = '', "
+                    "created_at = IF(created_at = 0, %s, created_at), "
+                    "updated_at = IF(updated_at = 0, %s, updated_at) WHERE id = %s", updates)
+            self._conn.commit()
+        except BaseException:
+            self._conn.rollback()
+            raise
+        finally:
+            cur.close()
+
+    def _rows(self, where: str) -> list:
+        self._reconnect()
+        cur = self._cursor()
+        cur.execute("SELECT id, username, `password`, data, favorite, created_at, updated_at, deleted_at "
+                    f"FROM passwords WHERE {where}")
+        rows = cur.fetchall()
+        self._conn.commit()  # end the read snapshot so the next read sees fresh data
+        cur.close()
+        return rows
+
+    @staticmethod
+    def _seal(fernet: Fernet, record: dict) -> str:
+        return fernet.encrypt(json.dumps(record, ensure_ascii=False).encode("utf-8")).decode("ascii")
+
+    @staticmethod
+    def _decode(fernet: Fernet, row) -> Entry:
+        entry_id, username, token, data, favorite, created, updated, deleted = row
+        extra = dict(favorite=bool(favorite), created_at=float(created or 0), updated_at=float(updated or 0),
+                     deleted_at=None if deleted is None else float(deleted))
+        if data is not None:
+            plaintext = _try_decrypt([fernet], data)
+            if plaintext is None:
+                return Entry(entry_id, "", None, title="Unreadable entry", **extra)
+            try:
+                record = json.loads(plaintext.decode("utf-8"))
+            except ValueError:
+                return Entry(entry_id, "", None, title="Unreadable entry", **extra)
+            return Entry(entry_id, record.get("username", ""), record.get("password", ""),
+                         title=record.get("title", ""), website=record.get("website", ""),
+                         notes=record.get("notes", ""), totp=record.get("totp", ""),
+                         kind=record.get("kind", "login"), history=tuple(record.get("history", ())), **extra)
+        plaintext = _try_decrypt([fernet], token)  # an older entry that couldn't be upgraded
+        return Entry(entry_id, _text(username or ""), plaintext.decode("utf-8", "replace") if plaintext else None,
+                     **extra)
+
+    def _execute(self, sql: str, params: tuple = ()) -> int:
+        self._reconnect()
+        cur = self._cursor()
+        try:
+            cur.execute(sql, params)
+            self._conn.commit()
+            return cur.rowcount
+        except BaseException:
+            self._conn.rollback()
+            raise
+        finally:
+            cur.close()
 
     def _require_unlocked(self) -> Fernet:
         if self._fernet is None:
@@ -516,6 +735,35 @@ class Vault:
         cur.execute("UPDATE vault_meta SET failed_attempts = 0, locked_until = 0 WHERE id = 1")
         self._conn.commit()
         cur.close()
+
+
+def _record(title: str, username: str, password: str, website: str, notes: str, totp_secret: str = "",
+            kind: str = "login", history: Sequence[dict] = ()) -> dict:
+    if kind not in KINDS:
+        raise ValueError(f"Unknown entry type {kind!r}.")
+    record = {"title": (title or "").strip(), "username": (username or "").strip(), "password": password or "",
+              "website": (website or "").strip(), "notes": (notes or "").rstrip(),
+              "totp": (totp_secret or "").strip(), "kind": kind,
+              "history": [{"password": str(h["password"]), "changed": float(h.get("changed", 0))}
+                          for h in history if isinstance(h, dict) and h.get("password")][:HISTORY_LIMIT]}
+    if kind == "note":
+        if not record["title"]:
+            raise ValueError("Give the note a title.")
+        if not (record["notes"] or record["password"]):
+            raise ValueError("The note is empty.")
+    else:
+        if not record["password"]:
+            raise ValueError("Password cannot be empty.")
+        if not (record["title"] or record["website"] or record["username"]):
+            raise ValueError("Give it a title, a website or a user name.")
+    if record["totp"]:
+        totp.parse(record["totp"])  # raises ValueError with a readable message
+    labels = {"title": "Title", "username": "User name", "password": "Password", "website": "Website",
+              "notes": "Notes", "totp": "2FA key"}
+    for field, limit in FIELD_LIMITS.items():
+        if len(record[field]) > limit:
+            raise ValueError(f"{labels[field]} is longer than {limit} characters.")
+    return record
 
 
 def _try_decrypt(keys: Sequence[Fernet], token) -> Optional[bytes]:

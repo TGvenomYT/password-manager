@@ -11,7 +11,7 @@
 # Remote install, without cloning:
 #   curl -fsSL https://raw.githubusercontent.com/TGvenomYT/password-manager/main/install.sh | bash
 #
-# What it does: installs Python 3 with Tkinter, GnuPG and MySQL (Homebrew on macOS;
+# What it does: installs Python 3, GnuPG and MySQL (Homebrew on macOS;
 # apt, dnf or pacman on Linux), starts MySQL, installs the app into its own
 # virtualenv, builds a native binary for this machine with PyInstaller, runs the
 # guided setup, and adds an app launcher.
@@ -39,13 +39,13 @@ have_mysql_server() {
     have mysqld || have mariadbd || [ -x /usr/sbin/mysqld ] || [ -x /usr/sbin/mariadbd ] || db_port_open
 }
 
-# A Python >= 3.9 whose tkinter works with Tk >= 8.6 (the macOS system Python ships Tk 8.5, which is broken).
+# A Python >= 3.9 that can make virtual environments. (The interface is Qt, installed with pip.)
 find_python() {
     local candidate
     for candidate in python3.13 python3.12 python3.11 python3.10 python3.14 python3.9 python3 \
                      /opt/homebrew/bin/python3.13 /usr/local/bin/python3.13; do
         have "$candidate" || continue
-        if "$candidate" -c 'import sys, tkinter; sys.exit(0 if sys.version_info >= (3, 9) and tkinter.TkVersion >= 8.6 else 1)' \
+        if "$candidate" -c 'import sys, venv; sys.exit(0 if sys.version_info >= (3, 9) else 1)' \
             >/dev/null 2>&1; then
             command -v "$candidate"
             return 0
@@ -82,12 +82,12 @@ mac_deps() {
     have gpg || want+=(gnupg)
     have_mysql_server || want+=(mysql)
     PY="$(find_python || true)"
-    [ -n "$PY" ] || want+=(python-tk@3.13)
+    [ -n "$PY" ] || want+=(python@3.13)
     if [ "${#want[@]}" -gt 0 ]; then
         info "Installing with Homebrew: ${want[*]}"
         brew install "${want[@]}" </dev/null
     fi
-    [ -n "$PY" ] || PY="$(find_python)" || die "Could not find a Python with Tkinter after installing python-tk."
+    [ -n "$PY" ] || PY="$(find_python)" || die "Could not find Python 3.9+ after installing python@3.13."
 
     if ! db_port_open; then
         local formula
@@ -157,7 +157,10 @@ linux_deps() {
     local pkgs=()
     if have apt-get; then
         # binutils + libpython3-dev: PyInstaller needs objdump and the shared libpython.
-        pkgs=(python3 python3-venv python3-tk gnupg binutils libpython3-dev)
+        # The rest are the libraries Qt needs to open a window.
+        pkgs=(python3 python3-venv gnupg binutils libpython3-dev libgl1 libegl1 libfontconfig1 libdbus-1-3
+              libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-render-util0
+              libxcb-image0)
         if ! have_mysql_server; then
             # Debian lists mysql-server as a purely virtual package (exit 0, no Version), so check for a real one.
             if apt-cache show mysql-server 2>/dev/null | grep -q '^Version:'; then pkgs+=(mysql-server); else pkgs+=(default-mysql-server); fi
@@ -166,7 +169,8 @@ linux_deps() {
         "${SUDO[@]}" apt-get update -qq </dev/null
         "${SUDO[@]}" env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq "${pkgs[@]}" </dev/null
     elif have dnf; then
-        pkgs=(python3 python3-tkinter gnupg2 binutils)
+        pkgs=(python3 gnupg2 binutils mesa-libGL mesa-libEGL fontconfig libxkbcommon-x11 xcb-util-cursor
+              xcb-util-wm xcb-util-keysyms xcb-util-renderutil xcb-util-image)
         if ! have_mysql_server; then
             if dnf -q info mysql-server >/dev/null 2>&1; then pkgs+=(mysql-server)
             elif dnf -q info community-mysql-server >/dev/null 2>&1; then pkgs+=(community-mysql-server)
@@ -175,7 +179,8 @@ linux_deps() {
         info "Installing with dnf: ${pkgs[*]}"
         "${SUDO[@]}" dnf install -y -q "${pkgs[@]}" </dev/null
     elif have pacman; then
-        pkgs=(python tk gnupg binutils)
+        pkgs=(python gnupg binutils mesa fontconfig libxkbcommon-x11 xcb-util-cursor xcb-util-wm xcb-util-keysyms
+              xcb-util-renderutil xcb-util-image)
         have_mysql_server || pkgs+=(mariadb)
         info "Installing with pacman: ${pkgs[*]}"
         "${SUDO[@]}" pacman -S --needed --noconfirm "${pkgs[@]}" </dev/null
@@ -183,9 +188,9 @@ linux_deps() {
             "${SUDO[@]}" mariadb-install-db --user=mysql --basedir=/usr --datadir=/var/lib/mysql >/dev/null
         fi
     else
-        warn "Unknown package manager. Make sure Python 3.9+ with Tkinter, GnuPG and MySQL/MariaDB are installed."
+        warn "Unknown package manager. Make sure Python 3.9+, GnuPG, MySQL/MariaDB and Qt's X11/EGL libraries are installed."
     fi
-    PY="$(find_python)" || die "No Python 3.9+ with Tkinter found."
+    PY="$(find_python)" || die "No Python 3.9+ found."
 
     if ! db_port_open; then
         info "Starting the database server..."
@@ -266,7 +271,7 @@ resolve_source() {
 
 install_app() {
     mkdir -p "$INSTALL_DIR"
-    if [ -x "$VENV/bin/python" ] && ! "$VENV/bin/python" -c 'import tkinter' >/dev/null 2>&1; then
+    if [ -x "$VENV/bin/python" ] && ! "$VENV/bin/python" -c 'import sys' >/dev/null 2>&1; then
         warn "Existing environment is broken (its Python was upgraded or removed); recreating it."
         rm -rf "$VENV"
     fi

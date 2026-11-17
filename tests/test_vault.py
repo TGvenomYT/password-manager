@@ -4,7 +4,7 @@ from cryptography.fernet import Fernet
 
 from password_manager import crypto
 from password_manager.vault import (
-    FREE_ATTEMPTS, NoRecoveryKey, Vault, VaultCorrupted, VaultError, VaultLocked, WeakMasterPassword,
+    FREE_ATTEMPTS, SCHEMA_VERSION, NoRecoveryKey, Vault, VaultCorrupted, VaultError, VaultLocked, WeakMasterPassword,
     WrongMasterPassword, WrongRecoveryKey,
 )
 
@@ -296,6 +296,157 @@ def test_vault_from_before_recovery_keys_is_upgraded(conn, fast_kdf):
     upgraded.set_recovery_key(crypto.new_recovery_key())
     assert [e.password for e in upgraded.entries()] == ["entry"]
     cur.execute("SELECT schema_version FROM vault_meta")
-    assert cur.fetchone()[0] == 3
+    assert cur.fetchone()[0] == SCHEMA_VERSION
     conn.commit()
 
+
+
+# ------------------------------------------------------------ entries (schema 4)
+
+def test_entries_keep_every_field_encrypted(conn, fast_kdf, clock):
+    vault = make_vault(conn, fast_kdf, clock)
+    vault.create(MASTER)
+    entry_id = vault.add_entry("ann@mail.test", "S3cret!pw", title="GitHub", website="https://www.github.com/login",
+                               notes="2FA codes in the drawer")
+    (entry,) = vault.entries()
+    assert (entry.id, entry.title, entry.username, entry.password, entry.website, entry.notes) == (
+        entry_id, "GitHub", "ann@mail.test", "S3cret!pw", "https://www.github.com/login", "2FA codes in the drawer")
+    assert entry.created_at == entry.updated_at == clock.now and not entry.favorite and entry.deleted_at is None
+    stored = dump_all_text(conn)
+    for secret in ("GitHub", "ann@mail.test", "S3cret!pw", "github.com", "2FA codes"):
+        assert secret not in stored
+
+    clock.now += 60
+    vault.update_entry(entry_id, title="GitHub (work)", username="ann", password="N3w!pass", website="github.com")
+    (entry,) = vault.entries()
+    assert (entry.title, entry.username, entry.password, entry.notes) == ("GitHub (work)", "ann", "N3w!pass", "")
+    assert entry.updated_at == clock.now and entry.created_at == clock.now - 60
+
+    with pytest.raises(ValueError):
+        vault.add_entry("", "pw")                 # needs a title, website or user name
+    with pytest.raises(ValueError):
+        vault.add_entry("x", "", title="Empty")    # needs a password
+
+
+def test_name_falls_back_to_website_then_username():
+    from password_manager.vault import Entry
+    assert Entry(1, "u", "p", title="T").name == "T"
+    assert Entry(1, "u", "p", website="https://www.Example.com:8443/a?b").name == "example.com"
+    assert Entry(1, "u", "p").name == "u"
+
+
+def test_favourites_trash_and_restore(conn, fast_kdf, clock):
+    from password_manager.vault import TRASH_DAYS
+    vault = make_vault(conn, fast_kdf, clock)
+    vault.create(MASTER)
+    a = vault.add_entry("a", "pw-a", title="Alpha")
+    b = vault.add_entry("b", "pw-b", title="Beta")
+    vault.set_favorite(a, True)
+    assert [e.favorite for e in vault.entries()] == [True, False]
+
+    vault.trash_entry(b)
+    assert [e.title for e in vault.entries()] == ["Alpha"]
+    assert [e.title for e in vault.entries(trash=True)] == ["Beta"]
+    vault.restore_entry(b)
+    assert [e.title for e in vault.entries()] == ["Alpha", "Beta"]
+
+    vault.trash_entry(b)
+    clock.now += TRASH_DAYS * 86400 + 1
+    reopened = make_vault(conn, fast_kdf, clock)
+    reopened.unlock(MASTER)                       # unlocking purges old trash
+    assert reopened.entries(trash=True) == [] and len(reopened.entries()) == 1
+
+    reopened.trash_entry(a)
+    assert reopened.empty_trash() == 1 and reopened.entries() == []
+
+
+def test_import_skips_exact_duplicates(conn, fast_kdf):
+    vault = make_vault(conn, fast_kdf)
+    vault.create(MASTER)
+    vault.add_entry("me", "pw1", title="GitHub", website="https://github.com")
+    rows = [{"title": "GitHub", "website": "https://github.com", "username": "me", "password": "pw1", "notes": ""},
+            {"title": "Bank", "website": "", "username": "me", "password": "pw2", "notes": "pin 0000"},
+            {"title": "Bank", "website": "", "username": "me", "password": "pw2", "notes": "pin 0000"}]
+    assert vault.import_entries(rows) == (1, 2)
+    assert [e.title for e in vault.entries()] == ["Bank", "GitHub"]
+
+
+def test_change_master_password(conn, fast_kdf, clock):
+    vault = make_vault(conn, fast_kdf, clock)
+    vault.create(MASTER)
+    vault.add_entry("me", "pw", title="Site")
+    key = crypto.new_recovery_key()
+    vault.set_recovery_key(key)
+    with pytest.raises(WrongMasterPassword):
+        vault.change_master_password("not it", "a new password")
+    with pytest.raises(WeakMasterPassword):
+        vault.change_master_password(MASTER, "short")
+    vault.change_master_password(MASTER, "a new password")
+    other = make_vault(conn, fast_kdf, clock)
+    with pytest.raises(WrongMasterPassword):
+        other.unlock(MASTER)
+    other.unlock("a new password")
+    assert other.lockout_remaining() == 0 and [e.password for e in other.entries()] == ["pw"]
+    make_vault(conn, fast_kdf, clock).recover(key, "third password")  # the recovery key still works
+
+
+def test_schema3_entries_are_upgraded_on_unlock(conn, fast_kdf):
+    vault = make_vault(conn, fast_kdf)
+    vault.create(MASTER)
+    token = vault._fernet.encrypt(b"old-pw").decode()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO passwords (username, `password`) VALUES ('Gmail', %s)", (token,))
+    conn.commit()
+    reopened = make_vault(conn, fast_kdf)
+    reopened.unlock(MASTER)
+    (entry,) = reopened.entries()
+    assert (entry.title, entry.username, entry.password) == ("Gmail", "Gmail", "old-pw")
+    cur.execute("SELECT username, `password`, data IS NOT NULL FROM passwords")
+    assert cur.fetchall() == [("", "", 1)]       # nothing readable left in the old columns
+    conn.commit()
+
+
+# ------------------------------------------------- 2FA, secure notes, history, restore
+
+def test_password_history_keeps_earlier_passwords(conn, fast_kdf, clock):
+    from password_manager.vault import HISTORY_LIMIT
+    vault = make_vault(conn, fast_kdf, clock)
+    vault.create(MASTER)
+    entry_id = vault.add_entry("me", "first-pass", title="Site")
+    for i in range(HISTORY_LIMIT + 2):
+        clock.now += 10
+        vault.update_entry(entry_id, title="Site", username="me", password=f"pass-{i}")
+    vault.update_entry(entry_id, title="Site renamed", username="me", password=f"pass-{HISTORY_LIMIT + 1}")
+    (entry,) = vault.entries()
+    assert entry.password == f"pass-{HISTORY_LIMIT + 1}" and entry.title == "Site renamed"
+    assert [h["password"] for h in entry.history][:2] == [f"pass-{HISTORY_LIMIT}", f"pass-{HISTORY_LIMIT - 1}"]
+    assert len(entry.history) == HISTORY_LIMIT  # a rename alone doesn't add history
+    assert "first-pass" not in dump_all_text(conn)
+
+
+def test_secure_notes_and_2fa(conn, fast_kdf):
+    vault = make_vault(conn, fast_kdf)
+    vault.create(MASTER)
+    vault.add_entry("", "", title="Bank PIN", notes="4321", kind="note")
+    vault.add_entry("me", "pw", title="GitHub", totp="otpauth://totp/GitHub:me?secret=JBSWY3DPEHPK3PXP")
+    with pytest.raises(ValueError, match="2FA"):
+        vault.add_entry("me", "pw", title="X", totp="not a key!")
+    with pytest.raises(ValueError):
+        vault.add_entry("", "", title="", notes="text", kind="note")
+    note, login = vault.entries()
+    assert (note.kind, note.notes, note.password) == ("note", "4321", "")
+    assert login.totp.startswith("otpauth://") and "JBSWY3DP" not in dump_all_text(conn)
+
+
+def test_import_keeps_2fa_favourites_and_history(conn, fast_kdf):
+    vault = make_vault(conn, fast_kdf)
+    vault.create(MASTER)
+    added, skipped = vault.import_entries([
+        {"title": "GitHub", "username": "me", "password": "pw", "totp": "JBSWY3DPEHPK3PXP", "favorite": True,
+         "history": [{"password": "older", "changed": 5}]},
+        {"title": "Steam", "username": "me", "password": "pw2", "totp": "steam://ABC"},  # unusable 2FA: kept anyway
+    ])
+    assert (added, skipped) == (2, 0)
+    github, steam = vault.entries()
+    assert github.favorite and github.totp == "JBSWY3DPEHPK3PXP" and github.history[0]["password"] == "older"
+    assert steam.totp == "" and steam.password == "pw2"

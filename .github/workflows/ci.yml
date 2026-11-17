@@ -82,6 +82,39 @@ jobs:
           $p = Start-Process -FilePath dist\PasswordManager.exe -ArgumentList '--self-test' -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "self-test exited with $($p.ExitCode)" }
 
+  uninstaller:
+    name: uninstall.bat (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fake an install, uninstall it, then erase everything
+        shell: pwsh
+        run: |
+          $appDir = Join-Path $env:LOCALAPPDATA 'PasswordManager'
+          $venv = Join-Path $appDir 'app\venv'
+          New-Item -ItemType Directory -Force -Path $venv | Out-Null
+          Set-Content (Join-Path $venv 'marker.txt') 'x'
+          $links = @([Environment]::GetFolderPath('Programs'), [Environment]::GetFolderPath('Desktop')) |
+            ForEach-Object { Join-Path $_ 'Password Manager.lnk' }
+          foreach ($link in $links) { New-Item -ItemType Directory -Force -Path (Split-Path $link) | Out-Null; Set-Content $link 'x' }
+          $cfg = Join-Path $env:APPDATA 'PasswordManager'
+          New-Item -ItemType Directory -Force -Path $cfg | Out-Null
+          Set-Content (Join-Path $cfg 'config.json') '{}'
+
+          cmd /c "uninstall.bat /nopause"
+          if ($LASTEXITCODE -ne 0) { throw "uninstall.bat exited with $LASTEXITCODE" }
+          if (Test-Path $appDir) { throw 'the app folder is still there' }
+          foreach ($link in $links) { if (Test-Path $link) { throw "shortcut left behind: $link" } }
+          if (-not (Test-Path (Join-Path $cfg 'config.json'))) { throw 'settings were removed without /all' }
+
+          'ERASE' | cmd /c "uninstall.bat /all /nopause"
+          if ($LASTEXITCODE -ne 0) { throw "uninstall.bat /all exited with $LASTEXITCODE" }
+          if (Test-Path $cfg) { throw 'settings are still there after /all' }
+
+          New-Item -ItemType Directory -Force -Path $cfg | Out-Null
+          'no' | cmd /c "uninstall.bat /all /nopause"
+          if (-not (Test-Path $cfg)) { throw '/all erased settings without ERASE' }
+
   lint-installers:
     runs-on: ubuntu-latest
     steps:

@@ -6,7 +6,7 @@
     Double-click install.bat, or run in PowerShell:
         powershell -ExecutionPolicy Bypass -File install.ps1 [-Reconfigure] [-Uninstall] [-NoLaunch]
 
-    Installs Python (with Tkinter), GnuPG and MySQL Server with winget. If no
+    Installs Python, GnuPG and MySQL Server with winget. If no
     MySQL service exists yet, it initializes a local one named
     'PasswordManagerMySQL' that listens on 127.0.0.1 only. It then installs the
     app into its own virtualenv, builds a native PasswordManager.exe for this machine
@@ -77,7 +77,7 @@ function Invoke-Probe([string]$Exe, [string[]]$Arguments) {
 }
 
 function Find-Python {
-    $probe = 'import sys, tkinter; assert sys.version_info >= (3, 9); print(sys.executable)'
+    $probe = 'import sys, venv; assert sys.version_info >= (3, 9); print(sys.executable)'
     foreach ($candidate in @('py -3.13', 'py -3.12', 'py -3.11', 'py -3', 'python')) {
         $parts = $candidate -split ' '
         if (-not (Get-Command $parts[0] -ErrorAction SilentlyContinue)) { continue }
@@ -196,7 +196,7 @@ function Resolve-Source {
 
 function Install-App([string]$Python, [string]$Source) {
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-    if ((Test-Path $VenvPython) -and -not (Invoke-Probe $VenvPython @('-c', 'import tkinter; print(1)'))) {
+    if ((Test-Path $VenvPython) -and -not (Invoke-Probe $VenvPython @('-c', 'import sys; print(1)'))) {
         Write-Warn 'Existing environment is broken; recreating it.'
         Remove-Item -Recurse -Force $Venv
     }
@@ -285,7 +285,7 @@ function Invoke-Main {
     if (-not $python) {
         Install-WingetPackage 'Python.Python.3.12'
         $python = Find-Python
-        if (-not $python) { throw 'Python 3.9+ with Tkinter was not found after installing it. Open a new terminal and run this again.' }
+        if (-not $python) { throw 'Python 3.9+ was not found after installing it. Open a new terminal and run this again.' }
     }
     Write-Info "Using Python: $python"
 

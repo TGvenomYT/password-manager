@@ -143,8 +143,8 @@ def test_app_password_is_kept_in_the_password_store(keyring):
     alerts.save_password(ADDRESS, "abcd efgh ijkl mnop")
     assert keyring.store == {(alerts.KEYRING_SERVICE, ADDRESS): "abcdefghijklmnop"}
     assert alerts.load_password(ADDRESS) == "abcdefghijklmnop"
-    alerts.forget_password(ADDRESS)
-    alerts.forget_password(ADDRESS)  # already gone: no error
+    assert alerts.forget_password(ADDRESS) == "removed"
+    assert alerts.forget_password(ADDRESS) == "missing"  # already gone: no error
     with pytest.raises(alerts.AlertError, match="missing"):
         alerts.load_password(ADDRESS)
 

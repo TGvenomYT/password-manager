@@ -3,8 +3,9 @@ rem Password Manager MARK IV: uninstall on Windows.
 rem
 rem   uninstall.bat        Remove the app and its shortcuts. Your vault and settings are kept,
 rem                        so running install.bat again picks up where you left off.
-rem   uninstall.bat /all   Also erase your settings and your vault (every saved password).
-rem                        Asks you to type ERASE first. Run it as administrator.
+rem   uninstall.bat /all   Also erase your settings, your vault (every saved password) and the
+rem                        email alerts' app password. Asks you to type ERASE first. Run it as
+rem                        administrator.
 rem
 rem Plain cmd on purpose: it works even where PowerShell scripts are blocked.
 setlocal EnableExtensions DisableDelayedExpansion
@@ -41,8 +42,8 @@ goto :finish
 :confirm_all
 echo.
 echo This erases your vault: every saved password, your master password and recovery key,
-echo your settings and GPG-protected database login, and the private MySQL server that the
-echo installer created. It cannot be undone.
+echo your settings and GPG-protected database login, the email alerts' app password, and the
+echo private MySQL server that the installer created. It cannot be undone.
 echo.
 set "CONFIRM="
 set /p "CONFIRM=Type ERASE to continue, or press Enter to cancel: "
@@ -54,6 +55,8 @@ goto :finish
 echo.
 echo ==^> Closing Password Manager if it is open...
 powershell -NoProfile -Command "Get-Process | Where-Object { $_.Path -and $_.Path -like ($env:LOCALAPPDATA + '\PasswordManager\*') } | Stop-Process -Force" >nul 2>&1
+
+if "%ALL%"=="1" call :forget_alerts
 
 echo ==^> Removing the shortcuts...
 set "PROGRAMS_DIR="
@@ -125,10 +128,20 @@ echo Done. Python, GnuPG and MySQL Server are still installed; remove them in
 echo Settings ^> Apps if nothing else uses them.
 goto :finish
 
+:forget_alerts
+rem The app removes the email alerts' app password from Windows Credential Manager itself, while
+rem its settings still say which address it belongs to. Its Python has a console; the .exe has none.
+set "PM_PY=%APP_DIR%\app\venv\Scripts\python.exe"
+if not exist "%PM_PY%" goto :eof
+echo ==^> Removing the email alerts' app password...
+"%PM_PY%" -m password_manager erase --keep-database
+goto :eof
+
 :usage
 echo Usage:
 echo   uninstall.bat        Remove the app and shortcuts; keep your vault and settings.
-echo   uninstall.bat /all   Also erase your settings and vault. Run as administrator.
+echo   uninstall.bat /all   Also erase your settings, vault and email alerts' app password.
+echo                        Run as administrator.
 goto :finish
 
 :finish

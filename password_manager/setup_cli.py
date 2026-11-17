@@ -107,9 +107,9 @@ def _admin_connect(dbc: cfgmod.DbConfig, user: str, password: str):
     return mysql.connector.connect(**kwargs)
 
 
-def _run_via_command(command: str, statements: List[str]) -> bool:
+def _run_via_command(command: str, statements: List[str], doing: str = "Creating the database user") -> bool:
     script = ";\n".join(statements) + ";\n"
-    say(f"Creating the database user with: {command}")
+    say(f"{doing} with: {command}")
     try:
         proc = subprocess.run(shlex.split(command), input=script.encode(), capture_output=True, timeout=300)
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -121,13 +121,15 @@ def _run_via_command(command: str, statements: List[str]) -> bool:
     return True
 
 
-def _run_via_connector(dbc: cfgmod.DbConfig, admin_user: str, statements: List[str]) -> None:
+def _run_via_connector(dbc: cfgmod.DbConfig, admin_user: str, statements: List[str],
+                       offer_password: bool = True) -> None:
     conn = None
     try:
         conn = _admin_connect(dbc, admin_user, "")
-        say(f"Connected to MySQL as '{admin_user}', which has NO password.")
-        say("Any program on this computer can currently read or delete every database.")
-        if ask_yes_no(f"Set a password for the MySQL '{admin_user}' account now? (recommended)"):
+        if offer_password:
+            say(f"Connected to MySQL as '{admin_user}', which has NO password.")
+            say("Any program on this computer can currently read or delete every database.")
+        if offer_password and ask_yes_no(f"Set a password for the MySQL '{admin_user}' account now? (recommended)"):
             new = ask_new_secret(f"New MySQL {admin_user} password", 8)
             cur = conn.cursor()
             cur.execute("ALTER USER CURRENT_USER() IDENTIFIED BY %s", (new,))

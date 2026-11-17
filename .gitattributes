@@ -1,3 +1,6 @@
 # cmd.exe misreads batch files with Unix line endings.
 *.bat text eol=crlf
 *.cmd text eol=crlf
+# Shell scripts must keep Unix line endings, even in a checkout made on Windows.
+*.sh text eol=lf
+*.command text eol=lf

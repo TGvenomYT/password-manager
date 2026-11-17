@@ -3,7 +3,7 @@
 #
 #   ./install.sh                 install or upgrade, then launch the app
 #   ./install.sh --reconfigure   redo the database user + GPG credential setup
-#   ./install.sh --uninstall     remove the app (keeps your vault, config and MySQL)
+#   ./install.sh --uninstall     remove the app (keeps your vault, config and MySQL); see also uninstall.sh
 #   ./install.sh --no-launch     don't open the app at the end
 #   PM_SETUP_ARGS="--port 3307"  extra options for `password_manager setup` (custom port, socket, ...)
 #   PM_NO_BINARY=1               skip building the native binary (run from the Python environment)
@@ -368,7 +368,7 @@ main() {
         else
             echo "    - config + GPG credential in: ${XDG_CONFIG_HOME:-$HOME/.config}/password-manager"
         fi
-        echo "  To erase everything, drop that database and user in MySQL and delete that folder."
+        echo "  To erase everything instead, run:  ./uninstall.sh --all"
         exit 0
     fi
 

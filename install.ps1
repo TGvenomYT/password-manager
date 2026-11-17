@@ -275,7 +275,7 @@ function Invoke-Main {
         Write-Info 'Removed the app. Your vault and settings were kept:'
         Write-Host "    - MySQL database 'password_manager' and MySQL user 'pm_app'"
         Write-Host "    - config + GPG credential in: $ConfigDir"
-        Write-Host '  To erase everything, drop that database and user in MySQL and delete that folder.'
+        Write-Host '  To erase everything instead, run uninstall.bat /all as administrator.'
         return
     }
 

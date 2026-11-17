@@ -75,9 +75,24 @@ On first launch the app asks you to create your **master password**.
 
 > **macOS note:** if Finder says `install.command` "can't be opened", right-click it and choose **Open**, or run `./install.sh` in Terminal.
 
-Other installer options: `--reconfigure` (redo the database/GPG setup), `--uninstall` (remove the app but keep your vault), `--no-launch`. On Windows: `-Reconfigure`, `-Uninstall`, `-NoLaunch`.
+Other installer options: `--reconfigure` (redo the database/GPG setup), `--no-launch`. On Windows: `-Reconfigure`, `-NoLaunch`.
 
-**Uninstall on Windows:** double-click **`uninstall.bat`**. It removes the app and its shortcuts and keeps your vault and settings, so `install.bat` picks up where you left off. `uninstall.bat /all` (run as administrator) also erases your settings and vault, after you type `ERASE`.
+### 🗑️ Uninstall
+
+| | Remove the app, keep your vault | Erase everything |
+|---|---|---|
+| **Windows** | double-click **`uninstall.bat`** | `uninstall.bat /all` in a Command Prompt opened with *Run as administrator* |
+| **macOS** | double-click **`uninstall.command`**, or `./uninstall.sh` | `./uninstall.sh --all` in Terminal |
+| **Linux** | `./uninstall.sh` | `./uninstall.sh --all` |
+
+Keeping your vault leaves your settings and the MySQL database in place, so installing again picks up where you left off. **Erase everything** asks you to type `ERASE`, then also removes your vault database and its MySQL user, your settings and GPG-protected database login, and the email alerts' app password (on Windows it removes the private MySQL server the installer made). Python, GnuPG and MySQL stay installed.
+
+Without a copy of the repository (macOS and Linux):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/TGvenomYT/password-manager/main/uninstall.sh | bash             # keep your vault
+curl -fsSL https://raw.githubusercontent.com/TGvenomYT/password-manager/main/uninstall.sh | bash -s -- --all  # erase everything
+```
 
 ---
 

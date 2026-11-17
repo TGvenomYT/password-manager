@@ -136,11 +136,57 @@ jobs:
           'no' | cmd /c "uninstall.bat /all /nopause"
           if (-not (Test-Path $cfg)) { throw '/all erased settings without ERASE' }
 
+  uninstaller-unix:
+    name: uninstall.sh (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install .
+      - name: Fake an install, uninstall it, then erase everything
+        run: |
+          set -eu
+          if [ "$(uname)" = Darwin ]; then
+            cfg="$HOME/Library/Application Support/PasswordManager"; app="$cfg/app"
+            launcher="$HOME/Applications/Password Manager.app"
+          else
+            cfg="$HOME/.config/password-manager"; app="$HOME/.local/share/password-manager/app"
+            launcher="$HOME/.local/share/applications/password-manager.desktop"
+          fi
+          make_app() {
+            mkdir -p "$app/venv/bin" "$(dirname "$launcher")"
+            printf '#!/bin/sh\nexec "%s" "$@"\n' "$(command -v python)" > "$app/venv/bin/python"
+            chmod +x "$app/venv/bin/python"
+            if [ "$(uname)" = Darwin ]; then mkdir -p "$launcher"; else echo x > "$launcher"; fi
+          }
+          make_app
+          mkdir -p "$cfg"
+          echo x > "$cfg/db-credential.gpg"
+
+          ./uninstall.sh
+          test ! -e "$app" || { echo "the app is still there"; exit 1; }
+          test ! -e "$launcher" || { echo "the launcher is still there"; exit 1; }
+          test -f "$cfg/db-credential.gpg" || { echo "settings were removed without --all"; exit 1; }
+
+          make_app
+          echo no | ./uninstall.sh --all
+          test -e "$app" && test -f "$cfg/db-credential.gpg" || { echo "--all removed things without ERASE"; exit 1; }
+
+          echo ERASE | ./uninstall.sh --all
+          test ! -e "$app" && test ! -e "$launcher" || { echo "the app is still there after --all"; exit 1; }
+          test ! -e "$cfg" || { echo "settings are still there after --all"; exit 1; }
+
   lint-installers:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: shellcheck install.sh install.command
+      - run: shellcheck install.sh install.command uninstall.sh uninstall.command
       - name: PowerShell syntax
         shell: pwsh
         run: |

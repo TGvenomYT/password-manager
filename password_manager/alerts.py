@@ -277,11 +277,17 @@ def load_password(address: str) -> str:
     return password
 
 
-def forget_password(address: str) -> None:
+def forget_password(address: str) -> str:
+    """Delete the stored app password: "removed", "missing" (nothing stored) or "failed"."""
     try:
-        _keyring().delete_password(KEYRING_SERVICE, address)
-    except Exception:  # noqa: BLE001 - already gone, or no password store
-        log.info("No stored app password to remove.")
+        keyring = _keyring()
+        if keyring.get_password(KEYRING_SERVICE, address) is None:
+            return "missing"
+        keyring.delete_password(KEYRING_SERVICE, address)
+        return "removed"
+    except Exception as exc:  # noqa: BLE001 - each password store raises its own errors
+        log.warning("Couldn't remove the app password: %s", exc)
+        return "failed"
 
 
 class Throttle:

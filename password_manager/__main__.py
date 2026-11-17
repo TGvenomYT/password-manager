@@ -2,6 +2,8 @@
 
     python -m password_manager            launch the app
     python -m password_manager setup      first-time configuration (run by the installers)
+    python -m password_manager erase      remove the vault database and the email alerts' app password
+                                          (run by the uninstallers when erasing everything)
     python -m password_manager --version
 """
 
@@ -81,6 +83,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         from .setup_cli import main as setup_main
 
         return setup_main(argv[1:])
+    if argv[:1] == ["erase"]:
+        from .erase_cli import main as erase_main
+
+        return erase_main(argv[1:])
     if argv:
         print(f"Unknown arguments: {' '.join(argv)}\n\n{__doc__.strip()}", file=sys.stderr)
         return 2
